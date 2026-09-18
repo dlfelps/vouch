@@ -173,8 +173,11 @@ def line_of(src: str, offset: int) -> int:
 # sentences
 # ---------------------------------------------------------------------------
 
-_BOUNDARY_BACK = re.compile(r"(?:[.!?](?=\s)|\n[ \t]*\n)")
-_BOUNDARY_FWD = re.compile(r"(?:[.!?](?=\s|$)|\n[ \t]*\n)")
+# Structural commands end a "sentence" too: a value cited in a table row or list
+# item should show that row or item, not the whole environment around it.
+_STRUCT = r"\\begin\{[^}]*\}(?:\{[^}]*\})?|\\end\{[^}]*\}|\\\\|\\item\b|\\(?:top|mid|bottom)rule\b|\\hline\b"
+_BOUNDARY_BACK = re.compile(r"(?:[.!?](?=\s)|\n[ \t]*\n|" + _STRUCT + ")")
+_BOUNDARY_FWD = re.compile(r"(?:[.!?](?=\s|$)|\n[ \t]*\n|" + _STRUCT + ")")
 
 
 def sentence_at(text: str, offset: int, limit: int = 240) -> str:
@@ -183,7 +186,12 @@ def sentence_at(text: str, offset: int, limit: int = 240) -> str:
     for m in _BOUNDARY_BACK.finditer(text, 0, offset):
         start = m.end()
     m = _BOUNDARY_FWD.search(text, offset)
-    end = m.end() if m and not m.group(0).startswith("\n") else (m.start() if m else len(text))
+    if m is None:
+        end = len(text)
+    elif m.group(0)[0] in ".!?":
+        end = m.end()
+    else:
+        end = m.start()
     s = " ".join(text[start:end].split())
     if len(s) > limit:
         rel = offset - start

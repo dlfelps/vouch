@@ -8,7 +8,6 @@ import json
 import shlex
 from typing import Any
 
-from .config import Config
 from .hashing import short
 from .index import Entry, Index
 from .render import Rendered
@@ -54,8 +53,28 @@ def _run_columns(idx: Index, run: str | None) -> dict[str, str]:
     }
 
 
+def _status_columns(ctx, key: str, run: str | None) -> dict[str, str]:
+    """freshness, change_status, previous_value, acked_at -- when a build context is given."""
+    if ctx is None:
+        return {}
+    st = ctx.states.get(run or "")
+    out = {"freshness": st.state if st else ""}
+    change = ctx.pending.get(key)
+    base = ctx.baseline.get(key)
+    if change is not None:
+        out["change_status"] = change.cls
+        out["previous_value"] = " | ".join((change.old or {}).get("plain", []))
+        out["acked_at"] = str((change.old or {}).get("acked", ""))
+    elif base is not None:
+        out["change_status"] = "acked"
+        out["acked_at"] = str(base.get("acked", ""))
+    else:
+        out["change_status"] = "new"
+    return out
+
+
 def rows(doc: Document, idx: Index, rendered: dict[tuple[str, str], Rendered],
-         include_uncited: bool = False) -> list[dict[str, str]]:
+         ctx=None, include_uncited: bool = False) -> list[dict[str, str]]:
     order: list[str] = []
     cited_at: dict[str, list[str]] = {}
     fmts: dict[str, list[str]] = {}
@@ -92,6 +111,11 @@ def rows(doc: Document, idx: Index, rendered: dict[tuple[str, str], Rendered],
             row["rendered"] = " | ".join(rendered[(key, f)].latex for f in fl if (key, f) in rendered)
             row["fmt"] = " | ".join(f or (e.fmt or "") for f in fl)
         row.update(_run_columns(idx, e.run))
+        if where:
+            row.update(_status_columns(ctx, key, e.run))
+        elif ctx is not None:
+            st = ctx.states.get(e.run or "")
+            row["freshness"] = st.state if st else ""
         return row
 
     for key in order:
@@ -103,6 +127,7 @@ def rows(doc: Document, idx: Index, rendered: dict[tuple[str, str], Rendered],
             if fig:
                 row["call_site"] = fig.site or ""
                 row.update(_run_columns(idx, fig.run))
+                row.update(_status_columns(ctx, key, fig.run))
             else:
                 row["freshness"] = "untracked"
             out.append(row)
@@ -131,11 +156,11 @@ def rows(doc: Document, idx: Index, rendered: dict[tuple[str, str], Rendered],
     return out
 
 
-def csv_text(doc: Document, idx: Index, rendered: dict, cfg: Config | None = None,
+def csv_text(doc: Document, idx: Index, rendered: dict, ctx=None,
              include_uncited: bool = False) -> str:
     buf = io.StringIO()
     w = csv.DictWriter(buf, fieldnames=COLUMNS, lineterminator="\n")
     w.writeheader()
-    for r in rows(doc, idx, rendered, include_uncited):
+    for r in rows(doc, idx, rendered, ctx, include_uncited):
         w.writerow(r)
     return buf.getvalue()

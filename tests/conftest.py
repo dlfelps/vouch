@@ -51,3 +51,31 @@ def project(tmp_path: Path) -> Project:
     root.mkdir()
     (root / "vouch.toml").write_text("", encoding="utf-8")
     return Project(root)
+
+
+EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "minimal"
+
+
+@pytest.fixture
+def example(tmp_path: Path) -> Path:
+    """examples/minimal copied fresh, its experiment run, and `vouch init` done."""
+    import shutil
+
+    from vouch import cli
+    root = tmp_path / "ex"
+    shutil.copytree(EXAMPLE, root, ignore=shutil.ignore_patterns(
+        ".vouch", "*.pdf", "*.aux", "*.log", "*.out", "*.fls", "*.fdb_latexmk", "*.up?",
+        "vouch-*", "vouch.sty", ".gitattributes"))
+    subprocess.run([sys.executable, "train.py"], cwd=root, check=True, capture_output=True)
+    assert cli.main(["init", "--root", str(root)]) == 0
+    return root
+
+
+def rerun(root: Path, script: str = "train.py") -> None:
+    subprocess.run([sys.executable, script], cwd=root, check=True, capture_output=True)
+
+
+def edit(path: Path, old: str, new: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    assert old in text, f"{old!r} not in {path}"
+    path.write_text(text.replace(old, new, 1), encoding="utf-8", newline="\n")

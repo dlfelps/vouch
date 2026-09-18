@@ -53,6 +53,12 @@ def table_line(key: str, path: str) -> str:
     return r"\vouch@table{" + key + "}{" + path + "}"
 
 
+def state_line(run: str, text: str) -> str:
+    """A run's freshness, read by tooltips through \\vouch@runstate. Kept on its own
+    line because it depends on the working tree, not on what was recorded."""
+    return r"\vouch@state{" + run + "}{" + text + "}"
+
+
 def values_file(lines: list[str], summary: str) -> str:
     return "\n".join([VALUES_HEADER, "% " + summary, *lines, ""])
 

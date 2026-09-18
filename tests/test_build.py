@@ -16,18 +16,7 @@ from vouch import cli
 from vouch.build import build
 from vouch.config import Config
 
-EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "minimal"
 HAVE_LATEX = shutil.which("pdflatex") is not None
-
-
-@pytest.fixture
-def example(tmp_path):
-    root = tmp_path / "ex"
-    shutil.copytree(EXAMPLE, root, ignore=shutil.ignore_patterns(".vouch", "*.pdf", "*.aux",
-                                                                 "*.log", "vouch-*", "vouch.sty"))
-    subprocess.run([sys.executable, "train.py"], cwd=root, check=True, capture_output=True)
-    assert cli.main(["init", "--root", str(root)]) == 0
-    return root
 
 
 def values(root: Path) -> str:
@@ -199,6 +188,30 @@ def test_pdf_has_values_and_provenance_tooltips(example):
                for t in tips)
     assert any(t.startswith("claim toy.centroid_beats_majority: HOLDS") for t in tips)
     assert any(t.startswith("main.centroid.acc = ") for t in tips)      # table cells too
+
+
+@needs_latex
+def test_pdf_shows_changes_and_run_state(example):
+    from conftest import edit, rerun
+    build(Config.load(example))
+    edit(example / "models.py",
+         "        return min(cent, key=lambda y: (x[0] - cent[y][0]) ** 2 + (x[1] - cent[y][1]) ** 2)",
+         "        return min(cent, key=lambda y: abs(x[0] - cent[y][0]) + abs(x[1] - cent[y][1]))")
+    rerun(example)
+    build(Config.load(example), notify=False)
+    paper = example / "paper"
+    proc = pdflatex(paper)
+    assert proc.returncode == 0, (paper / "main.log").read_text(errors="replace")[-2000:]
+    tips = tooltips(paper / "main.pdf")
+    changed = [t for t in tips if t.startswith("toy.centroid.acc = ")]
+    assert changed and "CHANGED: was 80.2 +/- 3.5% (acked" in changed[0]
+    assert "state: fresh" in changed[0]
+    # the working tree moves on: the next build's tooltips say the run is stale
+    edit(example / "models.py", "abs(x[0] - cent[y][0])", "abs(x[0] - cent[y][0]) * 1.0")
+    build(Config.load(example), notify=False)
+    assert pdflatex(paper).returncode == 0
+    tips = tooltips(paper / "main.pdf")
+    assert any("STATE: STALE - models.py::nearest_centroid changed" in t for t in tips)
 
 
 @needs_latex

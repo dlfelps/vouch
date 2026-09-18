@@ -81,6 +81,9 @@
 \def\vouch@pending#1#2{\@namedef{vouch@pend@#1}{#2}}
 % \vouch@table{key}{path}: the trailing space ends the file name for \@@input
 \def\vouch@table#1#2{\@namedef{vouch@tab@#1}{#2 }}
+% \vouch@state{run}{text}: the run's freshness, shown as the last tooltip line
+\def\vouch@state#1#2{\@namedef{vouch@st@#1}{#2}}
+\def\vouch@runstate#1{\ifcsname vouch@st@#1\endcsname\csname vouch@st@#1\endcsname\fi}
 
 \def\vouch@ifdef#1{%
   \ifcsname#1\endcsname\expandafter\@firstoftwo\else\expandafter\@secondoftwo\fi}

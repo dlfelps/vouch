@@ -1,40 +1,37 @@
 """``vouch build``: render every value, write the generated LaTeX and the provenance CSV.
 
-``plan()`` computes what the files *should* contain without touching disk, so
-``vouch check`` can later report ``out-of-sync`` by comparing; ``build()`` writes.
-A file is rewritten only when its content changes, so an unchanged build never
-makes latexmk recompile.
+``plan()`` computes everything -- freshness, pending changes, the content every
+generated file *should* have -- without touching disk, so ``vouch check`` reuses
+it read-only and reports ``out-of-sync`` by comparing. ``build()`` writes, and
+acknowledges the changes that cannot have made prose wrong. A file is rewritten
+only when its content changes, so an unchanged build never makes latexmk recompile.
+
+Run freshness depends on the working tree, not on what was recorded, so it is kept
+out of the content that ``out-of-sync`` compares: it lives on ``\\vouch@state``
+lines of the values file (which tooltips read) and in the CSV's freshness column.
 """
 
 from __future__ import annotations
 
+import csv
 import dataclasses
+import io
 import math
 import os
 from pathlib import Path
 from typing import Any
 
+from . import changes as ch
 from .config import Config
+from .freshness import RunState, assess
 from .index import Entry, Index, Table
+from .issues import Issue
 from .render import Options, RenderError, Rendered, render
 from .tex import emit
-from .tex.scan import Citation, Document, scan
+from .tex.scan import Document, scan
 from .values import Stat
 
 VALUE_KINDS = ("value", "stat-field", "param", "table-cell")
-
-
-@dataclasses.dataclass
-class Issue:
-    check: str
-    severity: str              # error | warning | info
-    message: str
-    file: str | None = None
-    line: int | None = None
-    fix: str | None = None
-
-    def where(self) -> str:
-        return f"{self.file}:{self.line}" if self.file and self.line else (self.file or "")
 
 
 @dataclasses.dataclass
@@ -44,18 +41,44 @@ class PaperPlan:
     tables_dir: Path
     csv_path: Path
     doc: Document
-    files: dict[Path, str]                       # path -> content
     rendered: dict[tuple[str, str], Rendered]
+    wanted: dict[str, set[str]]
     issues: list[Issue]
-    counts: dict[str, int]
+    files: dict[Path, str] = dataclasses.field(default_factory=dict)
+    counts: dict[str, int] = dataclasses.field(default_factory=dict)
+
+
+@dataclasses.dataclass
+class Context:
+    cfg: Config
+    idx: Index
+    states: dict[str, RunState]
+    baseline: dict[str, dict]
+    plans: list[PaperPlan]
+    changes: list[ch.Change]
+    project_issues: list[Issue]
+
+    @property
+    def pending(self) -> dict[str, ch.Change]:
+        return {c.key: c for c in self.changes if c.pending}
 
 
 @dataclasses.dataclass
 class BuildResult:
-    plans: list[PaperPlan]
-    issues: list[Issue]                          # project-level (store problems)
+    ctx: Context
     written: list[Path]
     unchanged: list[Path]
+    auto_acked: list[ch.Change]
+    notified: list[ch.Change]
+    notify_error: str | None
+
+    @property
+    def plans(self) -> list[PaperPlan]:
+        return self.ctx.plans
+
+    @property
+    def issues(self) -> list[Issue]:
+        return self.ctx.project_issues
 
 
 class BuildError(RuntimeError):
@@ -95,19 +118,28 @@ def _provenance(idx: Index, e: Entry, with_site: bool = True) -> list[str]:
     return [first, cmd, stamp]
 
 
-def value_tooltip(idx: Index, e: Entry) -> str:
+def _with_state(tip: str, run: str | None, change: ch.Change | None) -> str:
+    parts = [tip]
+    if run:
+        parts.append(r"\vouch@runstate{" + run + "}")
+    if change is not None:
+        parts.append(emit.tip_escape(ch.was_text(change)))
+    return emit.TIP_NEWLINE.join(parts)
+
+
+def value_tooltip(idx: Index, e: Entry, change: ch.Change | None = None) -> str:
     lines = [f"{e.key} = {_num(e.raw)}", e.desc or ""]
     if e.kind == "table-cell":
         lines.append(f"table {e.parent}")
     lines += _provenance(idx, e, with_site=e.kind != "param")
-    return emit.tooltip(lines)
+    return _with_state(emit.tooltip(lines), e.run, change)
 
 
-def claim_tooltip(idx: Index, e: Entry) -> str:
+def claim_tooltip(idx: Index, e: Entry, change: ch.Change | None = None) -> str:
     vals = e.extra.get("values") or {}
     lines = [f"claim {e.key}: {'HOLDS' if e.raw else 'FALSE'}", e.desc or "",
              ", ".join(f"{k}={_num(v)}" for k, v in vals.items())]
-    return emit.tooltip(lines + _provenance(idx, e))
+    return _with_state(emit.tooltip(lines + _provenance(idx, e)), e.run, change)
 
 
 def raw_text(x: Any) -> str:
@@ -122,6 +154,13 @@ def raw_text(x: Any) -> str:
     if isinstance(x, str):
         return emit.tip_escape(x)
     return str(x)
+
+
+def state_text(st: RunState) -> str:
+    word = {"fresh": "fresh", "cosmetic": "fresh", "accepted": "stale, accepted"}.get(st.state)
+    if word:
+        return emit.tip_escape(f"state: {word}")
+    return emit.tip_escape(f"STATE: {st.state.upper()} - {st.summary()}")
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +187,7 @@ def _table_rows(t: Table, idx: Index, rendered: dict, issues: list[Issue]) -> li
             key = t.cell_key(i, col)
             e = idx.get(key)
             v = _rank_value(e.raw) if e else None
-            if v is not None:
+            if v is not None and (key, "") in rendered:
                 ranked.append((v, rendered[(key, "")].latex, i))
         if not ranked:
             continue
@@ -181,7 +220,7 @@ def _table_rows(t: Table, idx: Index, rendered: dict, issues: list[Issue]) -> li
 
 
 # ---------------------------------------------------------------------------
-# planning one paper
+# phase 1: scan and render one paper
 # ---------------------------------------------------------------------------
 
 def paper_paths(cfg: Config, paper: dict) -> tuple[Path, Path, Path, Path]:
@@ -195,9 +234,7 @@ def paper_paths(cfg: Config, paper: dict) -> tuple[Path, Path, Path, Path]:
             opt("tables_dir", d / "vouch-tables"), opt("provenance_csv", d / "vouch-provenance.csv"))
 
 
-def plan_paper(cfg: Config, idx: Index, paper: dict) -> PaperPlan:
-    from .provenance import csv_text
-
+def prepare_paper(cfg: Config, idx: Index, paper: dict) -> PaperPlan:
     main, values_path, tables_dir, csv_path = paper_paths(cfg, paper)
     if not main.is_file():
         raise BuildError(f"paper main file {cfg.rel(main)} does not exist (vouch.toml [[paper]])")
@@ -207,19 +244,20 @@ def plan_paper(cfg: Config, idx: Index, paper: dict) -> PaperPlan:
     for f, line, target in doc.missing_inputs:
         issues.append(Issue("config", "warning", f"\\input{{{target}}} not found", f, line))
 
-    # what the paper cites, and in which formats
     wanted: dict[str, set[str]] = {}
     for c in doc.citations:
         if c.kind in ("value", "raw", "claim", "table"):
             e = idx.get(c.key)
             if e is None:
                 sugg = idx.suggest(c.key)
+                macro = {"value": "vouch", "raw": "vouchraw", "claim": "vouchclaim",
+                         "table": "vouchtable"}[c.kind]
                 issues.append(Issue("unknown-key", "error",
-                                    f"\\{'vouch' if c.kind == 'value' else 'vouch' + c.kind}"
-                                    f"{{{c.key}}} is not recorded by any run"
+                                    f"\\{macro}{{{c.key}}} is not recorded by any run"
                                     + (f" (did you mean {', '.join(sugg)}?)" if sugg else ""),
-                                    c.file, c.line,
-                                    fix="fix the key, or record it (vouch.record / record_all)"))
+                                    c.file, c.line, subject=c.key,
+                                    fix="fix the key, or record it (vouch.record / record_all)",
+                                    fix_kind="edit"))
                 continue
             if c.kind == "value" and c.fmt:
                 wanted.setdefault(c.key, set()).add(c.fmt)
@@ -227,57 +265,83 @@ def plan_paper(cfg: Config, idx: Index, paper: dict) -> PaperPlan:
             issues.append(Issue("figure-missing", "warning",
                                 f"\\includegraphics{{{c.written}}}: file not found", c.file, c.line))
 
-    # render: every value at its default format, plus each cited override
     rendered: dict[tuple[str, str], Rendered] = {}
-    lines: list[str] = []
-    n_values = 0
     for key in sorted(idx.entries):
         e = idx.entries[key]
         if e.kind not in VALUE_KINDS:
             continue
-        tip = value_tooltip(idx, e)
-        n_values += 1
         for fmt in [""] + sorted(wanted.get(key, ())):
             try:
-                r = render(e.raw, fmt or e.fmt, unit=e.unit, opts=opts)
+                rendered[(key, fmt)] = render(e.raw, fmt or e.fmt, unit=e.unit, opts=opts)
             except (RenderError, ValueError) as exc:
                 cites = [c for c in doc.citations if c.key == key and (c.fmt or "") == fmt]
                 where = cites[0] if cites else None
-                issues.append(Issue("format", "error" if fmt else "warning",
-                                    f"{key}: format {fmt or e.fmt!r} cannot render "
-                                    f"{type(e.raw).__name__} ({exc})",
-                                    where.file if where else None, where.line if where else None))
-                if fmt:
-                    continue
-                r = render(e.raw, None, unit=e.unit, opts=opts)
-            rendered[(key, fmt)] = r
-            lines.append(emit.set_line(key, fmt, r.latex, r.plain, tip, False))
+                if fmt or cites:
+                    issues.append(Issue("format", "error" if fmt else "warning",
+                                        f"{key}: format {fmt or e.fmt!r} cannot render "
+                                        f"{type(e.raw).__name__} ({exc})",
+                                        where.file if where else None,
+                                        where.line if where else None, subject=key))
+                if not fmt:
+                    rendered[(key, "")] = render(e.raw, None, unit=e.unit, opts=opts)
+    return PaperPlan(main, values_path, tables_dir, csv_path, doc, rendered, wanted, issues)
+
+
+# ---------------------------------------------------------------------------
+# phase 2: emit its files, knowing freshness and pending changes
+# ---------------------------------------------------------------------------
+
+def emit_paper(ctx: Context, pl: PaperPlan) -> None:
+    from .provenance import csv_text
+
+    idx, pending = ctx.idx, ctx.pending
+    lines: list[str] = []
+    n_values = n_claims = 0
+    for key in sorted(idx.entries):
+        e = idx.entries[key]
+        if e.kind not in VALUE_KINDS:
+            continue
+        change = pending.get(key)
+        tip = value_tooltip(idx, e, change)
+        n_values += 1
+        for fmt in [""] + sorted(pl.wanted.get(key, ())):
+            r = pl.rendered.get((key, fmt))
+            if r is not None:
+                lines.append(emit.set_line(key, fmt, r.latex, r.plain, tip, change is not None))
         lines.append(emit.raw_line(key, raw_text(e.raw)))
 
-    n_claims = 0
     for key in sorted(idx.entries):
         e = idx.entries[key]
         if e.kind == "claim":
             n_claims += 1
-            lines.append(emit.claim_line(key, bool(e.raw), claim_tooltip(idx, e), False))
+            change = pending.get(key)
+            lines.append(emit.claim_line(key, bool(e.raw), claim_tooltip(idx, e, change),
+                                         change is not None))
 
     files: dict[Path, str] = {}
     for key in sorted(idx.tables):
         t = idx.tables[key]
-        path = tables_dir / f"{key}.tex"
-        rel_for_tex = os.path.relpath(path, main.parent).replace(os.sep, "/")
+        path = pl.tables_dir / f"{key}.tex"
+        rel_for_tex = os.path.relpath(path, pl.main.parent).replace(os.sep, "/")
         lines.append(emit.table_line(key, rel_for_tex))
         header = (f"GENERATED by `vouch build` from run {t.run}"
                   + (f" ({t.site})" if t.site else "") + ". Do not edit.")
-        files[path] = emit.table_body(header, _table_rows(t, idx, rendered, issues), t.midrules)
+        files[path] = emit.table_body(header, _table_rows(t, idx, pl.rendered, pl.issues), t.midrules)
+
+    for run in sorted(ctx.states):
+        lines.append(emit.state_line(run, state_text(ctx.states[run])))
 
     summary = f"{n_values} values | {n_claims} claims | {len(idx.tables)} tables"
-    files[values_path] = emit.values_file(lines, summary)
-    files[csv_path] = csv_text(doc, idx, rendered, cfg)
-    counts = {"values": n_values, "claims": n_claims, "tables": len(idx.tables),
-              "citations": len(doc.citations)}
-    return PaperPlan(main, values_path, tables_dir, csv_path, doc, files, rendered, issues, counts)
+    files[pl.values_path] = emit.values_file(lines, summary)
+    files[pl.csv_path] = csv_text(pl.doc, idx, pl.rendered, ctx)
+    pl.files = files
+    pl.counts = {"values": n_values, "claims": n_claims, "tables": len(idx.tables),
+                 "citations": len(pl.doc.citations)}
 
+
+# ---------------------------------------------------------------------------
+# the whole project
+# ---------------------------------------------------------------------------
 
 def papers(cfg: Config) -> list[dict]:
     got = cfg.data.get("paper") or []
@@ -292,17 +356,42 @@ def papers(cfg: Config) -> list[dict]:
     return got
 
 
-def plan(cfg: Config) -> tuple[Index, list[PaperPlan], list[Issue]]:
+def plan(cfg: Config, *, check_env: bool = True, only: list[dict] | None = None) -> Context:
     idx = Index.load(cfg)
     project = [Issue(p.check, "error" if p.check in ("store-edited", "key-conflict") else "warning",
-                     p.message) for p in idx.problems]
-    return idx, [plan_paper(cfg, idx, p) for p in papers(cfg)], project
-
-
-def build(cfg: Config) -> BuildResult:
-    _, plans, project = plan(cfg)
-    written, unchanged = [], []
+                     p.message, subject=p.subject,
+                     fix="re-run the experiment; never edit .vouch/ by hand"
+                     if p.check == "store-edited" else None)
+               for p in idx.problems]
+    states = assess(cfg, idx.runs, check_env=check_env)
+    plans = [prepare_paper(cfg, idx, p) for p in (only or papers(cfg))]
+    baseline = ch.load_baseline(cfg)
+    current, cites = ch.currents(idx, plans)
+    changes = ch.compute(cfg, baseline, current, cites)
+    ctx = Context(cfg, idx, states, baseline, plans, changes, project)
     for pl in plans:
+        emit_paper(ctx, pl)
+    return ctx
+
+
+def comparable(path: Path, content: str) -> str:
+    """Content with the working-tree-dependent parts (run freshness) removed."""
+    if path.suffix == ".tex":
+        return "\n".join(ln for ln in content.splitlines() if not ln.startswith(r"\vouch@state{"))
+    if path.suffix == ".csv":
+        rows = list(csv.reader(io.StringIO(content)))
+        if rows and "freshness" in rows[0]:
+            i = rows[0].index("freshness")
+            for r in rows:
+                if len(r) > i:
+                    r[i] = ""
+        return "\n".join(",".join(r) for r in rows)
+    return content
+
+
+def write_files(ctx: Context) -> tuple[list[Path], list[Path]]:
+    written, unchanged = [], []
+    for pl in ctx.plans:
         for path, content in pl.files.items():
             try:
                 old = path.read_text(encoding="utf-8")
@@ -315,4 +404,17 @@ def build(cfg: Config) -> BuildResult:
             with open(path, "w", encoding="utf-8", newline="\n") as fh:
                 fh.write(content)
             written.append(path)
-    return BuildResult(plans, project, written, unchanged)
+    return written, unchanged
+
+
+def build(cfg: Config, *, notify: bool = True) -> BuildResult:
+    ctx = plan(cfg)
+    acked = ch.auto_acknowledge(cfg, ctx.baseline, ctx.changes)
+    if acked:
+        done = {c.key for c in acked}
+        ctx.changes = [c for c in ctx.changes if c.key not in done]
+        for pl in ctx.plans:          # the CSV reports acknowledgment: emit against the new baseline
+            emit_paper(ctx, pl)
+    written, unchanged = write_files(ctx)
+    fresh, err = ch.notify(cfg, ctx.changes) if notify else ([], None)
+    return BuildResult(ctx, written, unchanged, acked, fresh, err)

@@ -1,0 +1,7 @@
+- id: vouch-check
+  name: vouch check (paper numbers vouched for by their runs)
+  description: Fails when a number the paper cites is unknown, stale, out of sync, or a claim no longer holds.
+  entry: vouch check --quiet
+  language: python
+  pass_filenames: false
+  always_run: true

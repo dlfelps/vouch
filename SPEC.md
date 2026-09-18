@@ -926,7 +926,7 @@ $ vouch ack cifar.vit.acc --why "bug fix in augmentation; text updated in §4.2"
 $ vouch ack --all --why "re-ran all with 5 seeds"
 ```
 
-Acknowledging moves the baseline and appends an event to `.vouch/history.jsonl` recording the key, old → new, who, when and why. That file is a permanent changelog of the paper's numbers. Acknowledgment is a human action; agents surface changes and fix text, but don't acknowledge without approval (§13.5).
+Acknowledging moves the baseline and appends an event to `.vouch/history.jsonl` recording the key, old → new, who, when and why. That file is a permanent changelog of the paper's numbers. `vouch ack` and `vouch accept` rebuild the generated files themselves, so highlights and tooltips update without a separate `vouch build`. Acknowledgment is a human action; agents surface changes and fix text, but don't acknowledge without approval (§13.5).
 
 ---
 
@@ -973,8 +973,8 @@ There is exactly one CSV per paper, covering every cited key. This was decided i
 | `store-edited` | error | a run record's `record_hash` doesn't match its content | re-run the experiment; never hand-edit `.vouch/` |
 | `unknown-key` | error | a cited key exists nowhere (did-you-mean suggestions included) | fix the key, or `record`/`derive`/`expect` it |
 | `key-conflict` | error | two sources produce one key | rename one |
-| `out-of-sync` | error | generated files or `derived.json` differ from what `build` would write | `vouch build` |
-| `stale` / `upstream-stale` | error | §8.4 | re-run (exact command shown) or `vouch accept` |
+| `out-of-sync` | error | generated files or `derived.json` differ from what `build` would write. Run freshness is excluded from the comparison: it depends on the working tree, not on what was recorded, so it lives on separate `\vouch@state` lines (read by tooltips) and in the CSV's freshness column. A code edit is reported once, as `stale`, never also as `out-of-sync`. | `vouch build` |
+| `stale` / `upstream-stale` | error (info when the paper cites nothing from the run) | §8.4 | re-run (exact command shown) or `vouch accept` |
 | `tampered` / `incomplete` | error | §8.4 | re-run |
 | `untracked-input` | error | a derivation reads a file no run produced and not listed as `external` | produce it in a run, or declare it `external` |
 | `derive-cycle` | error | derived values depend on each other | break the cycle |
