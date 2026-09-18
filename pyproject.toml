@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vouch"
+version = "0.1.0.dev0"
+description = "Every number in your paper, vouched for by the code that produced it."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Daniel Felps" }]
+dependencies = ["tomli>=1.1; python_version < '3.11'"]
+
+[project.optional-dependencies]
+pandas = ["pandas"]
+dev = ["pytest>=7", "pandas"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/vouch"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

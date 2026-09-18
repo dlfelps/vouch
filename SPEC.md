@@ -776,9 +776,11 @@ A code unit's hash is SHA-256 (truncated to 16 hex characters) of `ast.dump(node
 
 | Unit | Contents |
 |---|---|
-| `path::<module>` | module-level statements, with every `def` body replaced by `pass` and every `class` body reduced to its header (name, bases, decorators) |
-| `path::Class` | class-level statements, with method bodies replaced by `pass` |
+| `path::<module>` | module-level statements other than definitions |
+| `path::Class` | the class header (name, bases, keywords, decorators) and class-level statements other than methods and nested classes |
 | `path::func`, `path::Class.method` | the whole definition: decorators, signature, defaults, body, including nested functions |
+
+Definitions are left out of the enclosing unit, because each definition's decorators, signature and defaults are already in its own unit. So reordering functions never changes a hash, and neither does editing one a run never executed.
 
 Nested definitions and lambdas (`f.<locals>.g`, `<lambda>`, `<genexpr>`) belong to their enclosing top-level unit. If a qualname is defined more than once (conditional definitions, a property setter), all of its definitions are hashed together in source order.
 
