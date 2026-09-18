@@ -658,7 +658,7 @@ Named formats from `[format] named` can be used anywhere a format can: `\vouch[p
 \usepackage{vouch}               % or \usepackage[short,final]{vouch}
 ```
 
-`vouch.sty` is plain LaTeX2e and needs nothing beyond a current kernel. It loads `pdfcomment` (for tooltips) and `xcolor` (for highlights) only if those features are on. It `\input`s the values file automatically (`\InputIfFileExists`), so no second line is needed.
+`vouch.sty` is plain LaTeX2e and needs nothing beyond a current kernel. At the end of the preamble it loads `hyperref` (unless the document already has), `xcolor`, and, for the tooltip and note modes, `pdfcomment`. Under `final` it loads none of them. It `\input`s the values file automatically (`\InputIfFileExists`), so no second line is needed.
 
 ### 7.2 Macros
 
@@ -679,40 +679,54 @@ Missing keys render the way `\ref` handles missing labels:
 
 | Option | Effect |
 |---|---|
-| `tooltip=off\|key\|value\|full` | how much the hover tooltip says (default `full`, or `latex.tooltip` in `vouch.toml`) |
+| `provenance=link\|tooltip\|note\|off` | how a reader gets from a number to where it came from (§7.4). Default `link`. |
+| `tooltip=key\|value\|full` | how much tooltip or note text says (default `full`). `tooltip=off`, the v0.1 spelling, means `provenance=off`. |
 | `highlight=off\|changed` | color values whose change is not yet acknowledged (default `changed`) |
-| `final` | camera-ready: no tooltips, highlights or markers, and `pdfcomment` is not loaded, so no internal paths or commits leak into the submission. Pending or unknown keys and false claims still render their markers **and** raise a LaTeX error, so a final build cannot silently ship a placeholder or a falsified claim. |
+| `final` | camera-ready: no links, tooltips, notes, colors or appendix, and none of `hyperref`/`pdfcomment`/`xcolor` is loaded on vouch's account, so no internal paths or commits leak into the submission. Pending or unknown keys and false claims still render their markers **and** raise a LaTeX error, so a final build cannot silently ship a placeholder or a falsified claim. |
 | `short` | defines the aliases above |
+| `values=FILE` | the generated values file (default `vouch-values.tex`) |
 
-### 7.4 Hover tooltips
+### 7.4 From a number to its provenance, in the PDF
 
-Every `\vouch` value, `\vouchclaim` span and generated table cell is wrapped in a PDF tooltip (`pdfcomment`'s `\pdftooltip`, a widget annotation with `/TU`). With `tooltip=full`:
+Hover tooltips turned out not to be portable. Tested in 2026-09: Chrome's and Edge's built-in viewers and several Windows Store readers draw a focus box on a form-field tooltip but never show its text. So there are four modes:
+
+| Mode | What the reader does | Works in |
+|---|---|---|
+| **`link`** (default) | clicks a number and lands on its entry in a generated **"Value provenance" appendix**; the entry links back to every page that cites it | every viewer (plain internal links, as used by `\ref`) |
+| `tooltip` | hovers over a number | Acrobat, Firefox; not Chrome or Edge |
+| `note` | hovers over or clicks a sticky-note icon beside each number | most desktop viewers; visually busy |
+| `off` | — | — |
+
+`examples/viewer-check/viewer-check.tex` compiles a one-page test of all three, so a team can check the viewers it uses.
+
+**Link mode.** In drafts, every `\vouch` value, `\vouchclaim` prose span and generated table cell is a link, colored `vouchvalue` (a muted blue; redefine it with `\definecolor` to change it). At the end of the draft, or where `\vouchprovenance` is placed, the appendix lists every cited key in order of first citation. Each entry shows:
+
+- the key and its rendered value, with "cited on p. 1, 3" (each page number links back)
+- the description, the raw value, and the table it belongs to (for table cells)
+- run, file:line and command
+- date, commit, and the run's current state (`fresh`, `STALE – models.py::f changed`, …)
+- for an unacknowledged change, "CHANGED: was 93.2% (acked 2026-09-10)" in the highlight color
+
+Some details follow from how PDF links work:
+
+- **Page numbers** come from the `.aux` file, so they appear after the second LaTeX run, as with `\ref`. vouch writes its own aux entries instead of using `\label`, because amsmath takes `\label` over inside equation environments.
+- **Links can't nest.** A claim's prose is one link, and values inside it don't make links of their own (they still appear in the appendix). Table-of-contents and list-of-figures lines are already links, so values in section titles and captions stay plain there.
+- **hyperref.** If the document doesn't load it, vouch loads it with `hidelinks`, so the document's look is unchanged. If it does (e.g. with `colorlinks`), its settings win for claim prose; vouched numbers keep `vouchvalue`.
+
+**Tooltip mode.** Values are wrapped in `pdfcomment`'s `\pdftooltip` (a widget annotation with `/TU`). With `tooltip=full`:
 
 ```
 cifar.resnet.acc = 0.93214 (±0.0041, n=5)
 run cifar_resnet · experiments/train.py:88
 python experiments/train.py --model resnet50 --seeds 5
-2026-09-12 14:03 UTC · git 0fdc530 · fresh
+2026-09-12 14:03 UTC · git 0fdc530 · state: fresh
 ```
 
-A claim's tooltip:
+A tooltip is an unbreakable box, so claim prose gets its tooltip **word by word**: the claim still breaks across lines normally. A word that is itself a `\vouch{…}` keeps its own tooltip.
 
-```
-claim cifar.resnet_beats_vit: HOLDS (margin 2.2%)
-0.932 > 0.912  [cifar.resnet.acc.mean, cifar.vit.acc.mean]
-defined vouch_values.py:14
-```
+Tooltip and note text is sanitized for `\pdfstringdef`: backslashes, braces, `%`, `#`, `$`, `^`, `~` and `&` are replaced, and paths always use forward slashes. The `key` level shows only the key; `value` shows the key and raw value.
 
-A value with an unacknowledged change adds a line: `CHANGED: was 93.2\% (acked 2026-09-10) — see vouch changes`.
-
-A tooltip is an unbreakable box, so claim prose gets its tooltip **word by word**: the claim still breaks across lines normally, and hovering any word shows the verdict. A word that is itself a `\vouch{…}` keeps its own tooltip.
-
-The `key` level shows only the key, and `value` shows the key and raw value. Tooltip text is sanitized for `\pdfstringdef`: backslashes, braces, `%`, `#`, `$`, `^`, `~` and `&` are replaced, and paths always use forward slashes.
-
-Where a tooltip can't be attached, vouch degrades to the plain value with a one-time warning:
-
-- in a moving argument (section titles use `\texorpdfstring`, so bookmarks get the plain value)
-- when `pdfcomment` is unavailable
+In every mode, a run's state (`fresh`, `STALE`, …) comes from `\vouch@state` lines. They depend on the working tree, so `vouch check` leaves them out when comparing the generated files (§11).
 
 ### 7.5 Changed-value highlighting
 
@@ -1504,7 +1518,7 @@ Tooling: uv, pytest, argparse (no click, to keep the core dependency-free). Opti
 
 **Still open:**
 
-1. **Tooltip viewer support.** `pdfcomment` tooltips are widget annotations with `/TU`. Acrobat, Okular and pdf.js show them; macOS Preview and some browser viewers may not. These need verification early in M2, along with behavior in math mode, captions, section titles and tabular cells, and load-order interactions with hyperref, cleveref and acmart. The fallback is a `/Contents` link annotation backend.
+1. ~~Tooltip viewer support~~ **Resolved:** tooltips weren't portable (Chrome, Edge and PDF X show nothing), so `provenance=link` is the default: click-through links to a generated provenance appendix, which work in every viewer (§7.4).
 2. **Implicit-run exit status.** `sys.exit(n≠0)` can't be seen from `atexit` (§4.1). Is documenting "use an explicit run" enough?
 3. **`sys.monitoring` tool-id contention** with debuggers, profilers and coverage. The plan is ids 3 or 4 first, then a module-granularity fallback.
 4. **Coarse filesystem mtimes** (FAT, some network mounts) could make the stat-keyed hash cache miss a change. Hash when `mtime_ns` has 1-second granularity?

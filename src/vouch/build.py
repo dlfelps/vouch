@@ -142,6 +142,41 @@ def claim_tooltip(idx: Index, e: Entry, change: ch.Change | None = None) -> str:
     return _with_state(emit.tooltip(lines + _provenance(idx, e)), e.run, change)
 
 
+def prov_latex(idx: Index, e: Entry, change: ch.Change | None = None) -> str:
+    """The appendix entry for one key: typeset LaTeX, every field escaped."""
+    from .render import tex_escape as esc
+    rec = idx.runs.get(e.run or "") or {}
+    first = []
+    if e.desc:
+        first.append(esc(e.desc))
+    if e.kind == "claim":
+        vals = e.extra.get("values") or {}
+        if vals:
+            first.append(esc(", ".join(f"{k} = {_num(v)}" for k, v in vals.items())))
+    else:
+        first.append("raw " + esc(_num(e.raw)))
+    if e.kind == "table-cell":
+        first.append(r"table \texttt{" + esc(e.parent or "") + "}")
+    lines = [r"\quad ".join(first)]
+    where = [r"run \texttt{" + esc(e.run or "?") + "}"]
+    if e.site and e.kind != "param":
+        where.append(r"\texttt{" + esc(e.site) + "}")
+    cmd = " ".join(rec.get("command") or [])
+    if cmd:
+        where.append(r"\texttt{" + esc(cmd) + "}")
+    lines.append(r"\quad ".join(where))
+    git = rec.get("git") or {}
+    stamp = [p for p in (esc(_when(rec.get("started"))),
+                         ("git " + esc(git["commit"][:7]) + (" (dirty)" if git.get("dirty") else ""))
+                         if git.get("commit") else "") if p]
+    if e.run:
+        stamp.append(r"\vouch@runstate{" + e.run + "}")
+    lines.append(r"\quad ".join(stamp))
+    if change is not None:
+        lines.append(r"\textcolor{vouchchanged}{" + esc(ch.was_text(change)) + "}")
+    return r"{\footnotesize " + r"\newline ".join(ln for ln in lines if ln) + "}"
+
+
 def raw_text(x: Any) -> str:
     if isinstance(x, bool):
         return "1" if x else "0"
@@ -309,6 +344,7 @@ def emit_paper(ctx: Context, pl: PaperPlan) -> None:
             if r is not None:
                 lines.append(emit.set_line(key, fmt, r.latex, r.plain, tip, change is not None))
         lines.append(emit.raw_line(key, raw_text(e.raw)))
+        lines.append(emit.prov_line(key, prov_latex(idx, e, change)))
 
     for key in sorted(idx.entries):
         e = idx.entries[key]
@@ -317,6 +353,7 @@ def emit_paper(ctx: Context, pl: PaperPlan) -> None:
             change = pending.get(key)
             lines.append(emit.claim_line(key, bool(e.raw), claim_tooltip(idx, e, change),
                                          change is not None))
+            lines.append(emit.prov_line(key, prov_latex(idx, e, change)))
 
     files: dict[Path, str] = {}
     for key in sorted(idx.tables):

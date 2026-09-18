@@ -1,0 +1,28 @@
+% Which vouch provenance mode works in your PDF viewer?
+% Compile with pdflatex (twice) and open viewer-check.pdf in each viewer you use.
+\documentclass{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{xcolor}
+\usepackage{pdfcomment}
+\hypersetup{hidelinks}
+\begin{document}
+\section*{vouch: which provenance mode works in this PDF viewer?}
+
+Hover over, then click, each number. Choose the mode with
+\verb|\usepackage[provenance=MODE]{vouch}|.
+
+\bigskip
+\begin{tabular}{@{}lp{0.55\linewidth}l@{}}
+\texttt{link} & (default) click: jumps to a provenance appendix. Works in essentially every viewer. & \hyperlink{vouchF}{\textcolor[RGB]{0,70,140}{93.2\%}} \\[1ex]
+\texttt{tooltip} & hover text. Acrobat, Firefox; not Chrome or Edge. & \pdftooltip{93.2\%}{toy.centroid.acc = 0.932 | run train | train.py:25} \\[1ex]
+\texttt{note} & sticky-note icon; hover or click it. Most desktop viewers. & 93.2\%\,\pdfcomment[icon=Comment,author=vouch]{toy.centroid.acc = 0.932 | run train | train.py:25} \\
+\end{tabular}
+
+\newpage
+\section*{Value provenance (where \texttt{link} jumps to)}
+\hypertarget{vouchF}{}
+\textbf{\texttt{toy.centroid.acc}} = 93.2\%\hfill{\footnotesize cited on p.\,\hyperlink{page.1}{1}}\\
+{\footnotesize top-1 test accuracy \quad raw 0.93214\\
+run \texttt{train}\quad \texttt{train.py:25}\quad \texttt{python train.py}\\
+2026-09-18 22:34 UTC\quad git c0b2945\quad state: fresh}
+\end{document}

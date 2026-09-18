@@ -45,6 +45,11 @@ def claim_line(key: str, holds: bool, tip: str, changed: bool) -> str:
             + ("1" if changed else "0") + "}")
 
 
+def prov_line(key: str, latex: str) -> str:
+    """The key's entry in the provenance appendix (typeset LaTeX, already escaped)."""
+    return r"\vouch@prov{" + key + "}{" + latex + "}"
+
+
 def pending_line(key: str, producer: str) -> str:
     return r"\vouch@pending{" + key + "}{" + tip_escape(producer) + "}"
 
