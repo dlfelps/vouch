@@ -1,0 +1,6 @@
+[[paper]]
+main = "paper/main.tex"
+
+[metrics]
+"*.acc"    = { fmt = ".1pct", better = "higher", desc = "test accuracy of {1}, mean and std over seeds" }
+"*.n_test" = { desc = "test examples per seed" }

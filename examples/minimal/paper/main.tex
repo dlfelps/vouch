@@ -1,0 +1,37 @@
+\documentclass{article}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{vouch}
+
+\title{A Toy Paper Whose Numbers Are Vouched For}
+\author{vouch example}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Results at \vouch{toy.centroid.acc.mean}}
+
+Nearest-centroid reaches \vouch{toy.centroid.acc} accuracy
+(\vouch[.3f]{toy.centroid.acc.mean} as a fraction), while the majority baseline
+reaches \vouch{toy.majority.acc}.
+\vouchclaim{toy.centroid_beats_majority}{The centroid classifier has higher mean
+accuracy than the majority baseline}. Each model is evaluated on
+\vouch{toy.centroid.n_test} test points for each of \vouch{train.param.seeds} seeds.
+
+In math the same number reads $a = \vouch{toy.centroid.acc.mean}$. Raw values are
+there for computation too: \vouchraw{train.param.seeds} seeds.
+
+\begin{table}[h]
+  \centering
+  \caption{Accuracy, mean $\pm$ std over \vouch{train.param.seeds} seeds.}
+  \begin{tabular}{lr}
+    \toprule
+    Model & Accuracy \\
+    \midrule
+    \vouchtable{main}
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\end{document}

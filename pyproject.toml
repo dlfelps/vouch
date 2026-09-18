@@ -15,6 +15,9 @@ dependencies = ["tomli>=1.1; python_version < '3.11'"]
 pandas = ["pandas"]
 dev = ["pytest>=7", "pandas"]
 
+[project.scripts]
+vouch = "vouch.cli:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/vouch"]
 
