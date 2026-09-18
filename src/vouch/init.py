@@ -112,7 +112,6 @@ def init(root: Path, paper: str | None = None) -> list[str]:
 
     attrs = root / ".gitattributes"
     want = ["*/vouch-values.tex linguist-generated=true",
-            "*/vouch-provenance.csv linguist-generated=true",
             "*/vouch-tables/*.tex linguist-generated=true"]
     have = attrs.read_text(encoding="utf-8").splitlines() if attrs.exists() else []
     missing = [w for w in want if w not in have]

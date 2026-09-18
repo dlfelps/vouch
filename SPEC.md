@@ -76,7 +76,7 @@ ResNet-50 reaches \vouch{cifar.resnet.acc} top-1 accuracy.
 
 ```console
 $ vouch build
-wrote paper/vouch-values.tex (1 value), paper/vouch-provenance.csv, .vouch/CATALOG.md
+wrote paper/vouch-values.tex (1 value), .vouch/CATALOG.md
 $ latexmk -pdf paper/main.tex      # "ResNet-50 reaches 93.2% top-1 accuracy." (hover: key, run, file:line, commit)
 ```
 
@@ -213,7 +213,7 @@ paper/
   vouch.sty                 # copied in by `vouch init`, so Overleaf and arXiv need no install (committed)
   vouch-values.tex          # generated (committed)
   vouch-tables/<key>.tex    # generated table bodies (committed)
-  vouch-provenance.csv      # generated (committed)
+  vouch-provenance.csv      # only if [[paper]] provenance_csv is set; else `vouch export --csv`
 .claude/skills/vouch/SKILL.md   # optional, from `vouch init --agents`
 ```
 
@@ -232,7 +232,7 @@ If no `vouch.toml` exists, the API falls back to the git top level, warns once (
 main           = "paper/main.tex"          # entry point; \input, \include, \subfile and \import are followed
 values_file    = "paper/vouch-values.tex"  # default: next to main
 tables_dir     = "paper/vouch-tables"
-provenance_csv = "paper/vouch-provenance.csv"
+provenance_csv = "paper/vouch-provenance.csv"   # optional: also write the CSV on every build
 
 [python]
 values_modules = ["vouch_values.py"]       # modules defining derive / claim / table / expect
@@ -946,7 +946,9 @@ Acknowledging moves the baseline and appends an event to `.vouch/history.jsonl` 
 
 ## 10. Provenance CSV
 
-`vouch build` writes `paper/vouch-provenance.csv`: **one row per key the paper cites**, in reading order (order of first citation). Figures cited through `\includegraphics` get rows too. The file is deterministic and committed, so it doubles as a manifest for reviewers or supplementary material, and its diff is readable.
+The everyday way to see where a number came from is the PDF's provenance appendix (§7.4). The CSV is the same information as a table, for when there is no draft PDF: a final (double-blind) submission's supplementary material, artifact evaluation, a spreadsheet, or a script. `vouch export --csv PATH` writes it on demand. Setting `provenance_csv` under `[[paper]]` makes every build write it too; it is then committed and checked for `out-of-sync` like the other generated files.
+
+It has **one row per key the paper cites**, in reading order (order of first citation). Figures cited through `\includegraphics` get rows too. It is deterministic, so a committed copy's diff is readable.
 
 | Column | Content |
 |---|---|
@@ -1024,7 +1026,7 @@ Every command accepts `--json`, which emits a stable, versioned envelope (§13.6
 | Command | Does |
 |---|---|
 | `vouch init [--paper FILE] [--hook] [--agents]` | Writes `vouch.toml`, detects the main `.tex`, copies `vouch.sty`, adds `.gitignore` entries (`.vouch/cache/`), and prints the `\usepackage` line to add. `--hook` installs the pre-commit hook; `--agents` installs the LLM layer (§13.5). |
-| `vouch build [--no-notify]` | Evaluates `vouch_values.py`, renders the values file, tables, provenance CSV and catalog, refreshes annotations if enabled, auto-acknowledges new, `hidden` and `reformatted` changes, and prints the change block (§9.3). |
+| `vouch build [--no-notify]` | Evaluates `vouch_values.py`, renders the values file, tables (and the provenance CSV if `provenance_csv` is set) and catalog, refreshes annotations if enabled, auto-acknowledges new, `hidden` and `reformatted` changes, and prints the change block (§9.3). |
 | `vouch check [--strict] [--quiet] [--json] [--paper FILE]` | The gate (§11). Read-only. Target: under 1 s. |
 | `vouch status` | Freshness per run, git-status style, with the exact re-run command and the units that changed. |
 | `vouch ls [PATTERN] [--cited\|--uncited] [--fields …]` | Keys with rendered value, description, run, freshness and citation count. |

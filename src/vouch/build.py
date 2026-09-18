@@ -39,7 +39,7 @@ class PaperPlan:
     main: Path
     values_path: Path
     tables_dir: Path
-    csv_path: Path
+    csv_path: Path | None
     doc: Document
     rendered: dict[tuple[str, str], Rendered]
     wanted: dict[str, set[str]]
@@ -258,15 +258,18 @@ def _table_rows(t: Table, idx: Index, rendered: dict, issues: list[Issue]) -> li
 # phase 1: scan and render one paper
 # ---------------------------------------------------------------------------
 
-def paper_paths(cfg: Config, paper: dict) -> tuple[Path, Path, Path, Path]:
+def paper_paths(cfg: Config, paper: dict) -> tuple[Path, Path, Path, Path | None]:
+    """main, values file, tables dir, and the provenance CSV -- written by every build
+    only when ``provenance_csv`` is set; otherwise ``vouch export --csv`` makes it on demand
+    (the PDF's provenance appendix is the everyday view)."""
     main = (cfg.root / paper["main"]).resolve()
     d = main.parent
 
-    def opt(name: str, default: Path) -> Path:
+    def opt(name: str, default: Path | None) -> Path | None:
         v = paper.get(name)
         return (cfg.root / v).resolve() if v else default
     return (main, opt("values_file", d / "vouch-values.tex"),
-            opt("tables_dir", d / "vouch-tables"), opt("provenance_csv", d / "vouch-provenance.csv"))
+            opt("tables_dir", d / "vouch-tables"), opt("provenance_csv", None))
 
 
 def prepare_paper(cfg: Config, idx: Index, paper: dict) -> PaperPlan:
@@ -370,7 +373,8 @@ def emit_paper(ctx: Context, pl: PaperPlan) -> None:
 
     summary = f"{n_values} values | {n_claims} claims | {len(idx.tables)} tables"
     files[pl.values_path] = emit.values_file(lines, summary)
-    files[pl.csv_path] = csv_text(pl.doc, idx, pl.rendered, ctx)
+    if pl.csv_path is not None:
+        files[pl.csv_path] = csv_text(pl.doc, idx, pl.rendered, ctx)
     pl.files = files
     pl.counts = {"values": n_values, "claims": n_claims, "tables": len(idx.tables),
                  "citations": len(pl.doc.citations)}

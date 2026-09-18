@@ -122,7 +122,7 @@ def cmd_build(args) -> int:
     if args.json:
         print(_envelope("build", True, papers=[
             {"main": cfg.rel(pl.main), "values_file": cfg.rel(pl.values_path),
-             "provenance_csv": cfg.rel(pl.csv_path), "counts": pl.counts,
+             "provenance_csv": cfg.rel(pl.csv_path) if pl.csv_path else None, "counts": pl.counts,
              "issues": [i.to_json() for i in pl.issues]} for pl in res.plans],
             issues=[i.to_json() for i in res.issues],
             written=sorted(cfg.rel(p) for p in res.written),
@@ -136,7 +136,8 @@ def cmd_build(args) -> int:
         C.out(f"vouch build: {cfg.rel(pl.main)}")
         C.out(f"  {'wrote' if touched else 'unchanged'}: {cfg.rel(pl.values_path)} "
               f"({c['values']} values, {c['claims']} claims, {c['tables']} tables; "
-              f"{c['citations']} citations), {cfg.rel(pl.csv_path)}")
+              f"{c['citations']} citations)"
+              + (f", {cfg.rel(pl.csv_path)}" if pl.csv_path else ""))
         for i in pl.issues:
             _print_issue(i)
     for i in res.issues:

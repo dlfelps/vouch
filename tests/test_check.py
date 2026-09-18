@@ -82,8 +82,9 @@ def test_rerun_moves_values_then_ack(example, capsys):
     values = (example / "paper/vouch-values.tex").read_text(encoding="utf-8")
     line = next(ln for ln in values.splitlines() if ln.startswith(r"\vouch@set{toy.centroid.acc}{}"))
     assert line.endswith("}{1}") and "CHANGED: was 80.2 +/- 3.5\\% (acked" in line
-    rows = {r["key"]: r for r in csv.DictReader(io.StringIO(
-        (example / "paper/vouch-provenance.csv").read_text(encoding="utf-8")))}
+    capsys.readouterr()
+    assert cli.main(["export", "--root", str(example)]) == 0
+    rows = {r["key"]: r for r in csv.DictReader(io.StringIO(capsys.readouterr().out))}
     assert rows["toy.centroid.acc"]["change_status"] == "changed"
     assert rows["toy.centroid.acc"]["previous_value"] == r"80.2 +/- 3.5\%"
 

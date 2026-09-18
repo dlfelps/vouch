@@ -27,11 +27,11 @@ def values(root: Path) -> str:
 # generated files
 # ---------------------------------------------------------------------------
 
-def test_build_writes_values_tables_and_csv(example):
+def test_build_writes_values_and_tables(example):
     res = build(Config.load(example))
     written = {p.relative_to(example).as_posix() for p in res.written}
-    assert written == {"paper/vouch-values.tex", "paper/vouch-provenance.csv",
-                       "paper/vouch-tables/main.tex"}
+    # the provenance CSV is on demand (vouch export) unless [[paper]] asks for it
+    assert written == {"paper/vouch-values.tex", "paper/vouch-tables/main.tex"}
     v = values(example)
     # default rendering from [metrics] (.1pct), Stat as mean \pm std
     assert r"\vouch@set{toy.centroid.acc}{}{\ensuremath{80.2 \pm 3.5}\%}" in v
@@ -59,10 +59,30 @@ def test_rebuild_is_byte_identical_and_writes_nothing(example):
     assert res.written == [] and values(example) == first
 
 
-def test_provenance_csv_rows_in_reading_order(example):
+def export_rows(example, capsys) -> list[dict]:
+    capsys.readouterr()
+    assert cli.main(["export", "--root", str(example)]) == 0
+    return list(csv.DictReader(io.StringIO(capsys.readouterr().out)))
+
+
+def test_opt_in_provenance_csv_is_written_and_checked(example, capsys):
+    cfg_path = example / "vouch.toml"
+    cfg_path.write_text(cfg_path.read_text(encoding="utf-8").replace(
+        'main = "paper/main.tex"', 'main = "paper/main.tex"\nprovenance_csv = "paper/numbers.csv"'),
+        encoding="utf-8")
+    res = build(Config.load(example))
+    assert (example / "paper/numbers.csv") in res.written
+    text = (example / "paper/numbers.csv").read_text(encoding="utf-8")
+    assert text.startswith("key,kind,rendered,")
+    (example / "paper/numbers.csv").write_text(text.replace("80.2", "85.0"), encoding="utf-8")
+    capsys.readouterr()
+    assert cli.main(["check", "--root", str(example), "--no-env", "--quiet"]) == 1
+    assert "paper/numbers.csv does not match" in capsys.readouterr().out
+
+
+def test_provenance_csv_rows_in_reading_order(example, capsys):
     build(Config.load(example))
-    text = (example / "paper" / "vouch-provenance.csv").read_text(encoding="utf-8")
-    rows = list(csv.DictReader(io.StringIO(text)))
+    rows = export_rows(example, capsys)
     assert [r["key"] for r in rows[:6]] == [
         "toy.centroid.acc.mean", "toy.centroid.acc", "toy.majority.acc",
         "toy.centroid_beats_majority", "toy.centroid.n_test", "train.param.seeds"]
