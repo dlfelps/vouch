@@ -127,9 +127,10 @@ class Index:
                 self.problems.append(Problem("bad-record", key, f"run {run}: cannot read {key}"))
                 continue
             meta = self._meta(key, v)
-            self._add(Entry(key, "value", raw, run=run, site=v.get("site"), **meta), src)
+            extra = {"call": v["call"]} if isinstance(v.get("call"), dict) else {}
+            self._add(Entry(key, "value", raw, run=run, site=v.get("site"), extra=extra, **meta), src)
             if isinstance(raw, Stat):
-                self._add_stat_fields(key, raw, run, v.get("site"), meta, src)
+                self._add_stat_fields(key, raw, run, v.get("site"), meta, src, extra)
 
         for name, payload in (rec.get("params") or {}).items():
             key = join_key(run, "param", name)
@@ -170,7 +171,7 @@ class Index:
                 self.figures[path] = Figure(path, run, a.get("hash"), a.get("site"))
 
     def _add_stat_fields(self, key: str, s: Stat, run: str, site: str | None, meta: dict,
-                         src: str) -> None:
+                         src: str, extra: dict | None = None) -> None:
         for field in STAT_FIELDS:
             val = s.field(field)
             if val is None:
@@ -179,7 +180,8 @@ class Index:
             desc = f"{meta['desc']} ({field})" if meta["desc"] else f"{field} of {key}"
             self._add(Entry(f"{key}.{field}", "stat-field", val, run=run, site=site, fmt=fmt,
                             unit=meta["unit"], desc=desc,
-                            better=meta["better"] if field == "mean" else None, parent=key), src)
+                            better=meta["better"] if field == "mean" else None, parent=key,
+                            extra=dict(extra or {})), src)
 
     # -- queries ----------------------------------------------------------------
 

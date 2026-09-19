@@ -374,6 +374,12 @@ def _trace_key(ctx, key: str, args, indent: str = "") -> int:
         rec = idx.runs.get(e.run) or {}
         st = ctx.states.get(e.run)
         out.append(f"  recorded  {e.site or '-'}   in run {e.run}")
+        if e.extra.get("call"):
+            from .track import call_text
+            call = e.extra["call"]
+            out.append(f"  by        {call_text(call)}")
+            if call.get("sites"):
+                out.append(f"  called at {', '.join(call['sites'][:6])}")
         out.append(f"  command   {' '.join(rec.get('command') or [])}")
         git = rec.get("git") or {}
         pk = rec.get("env", {}).get("packages", {})

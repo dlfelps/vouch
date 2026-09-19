@@ -385,6 +385,60 @@ The same single-step registration is available outside Python:
 - `vouch run` ingests the program's whole `$VOUCH_VALUES` JSON (§14).
 - `vouch import` registers an existing results file (§14.1).
 
+### 4.3a Recording a function's results: `@vouch.track`
+
+Decorating an experiment function records what it returns on every call, keyed by the call's arguments:
+
+```python
+@vouch.track(over="seed")
+def evaluate(dataset: str, model: str, seed: int = 0, lr: float = 1e-3) -> dict:
+    ...
+    return {"acc": acc, "loss": loss}
+
+for model in ("resnet", "vit"):
+    for seed in range(5):
+        evaluate("cifar", model, seed=seed)
+# -> evaluate.cifar.resnet.lr_0_001.acc, .loss, evaluate.cifar.vit.lr_0_001.acc, ...
+#    each a Stat over seeds 0..4
+```
+
+**Keys** are the function's name followed by **every argument**, defaults included, in signature order:
+- A string argument is written as its value (`cifar`).
+- A number, bool or `None` is written as `name_value` (`lr_0_001`, `seed_3`, `flag_true`), because a bare number says nothing about what it is.
+- An enum is written as its member name; a short list of simple values as `layers_64-64`.
+- Arguments that can't be written into a key (arrays, models, dicts, `self`) are left out of it and described in the call metadata instead (`<ndarray shape (3, 4)>`, `<list of 10>`).
+- Methods use the class-qualified name (`Trainer.fit…`).
+- Keys longer than 100 characters are shortened with a hash suffix, so they stay unique.
+- `key="{dataset}.{model}"` replaces the scheme with a template, checked against the signature when the function is decorated.
+
+**Results:**
+- a number, `Stat` or tuple → the base key
+- a dict or dataclass → one key per (nested) field
+- a DataFrame or list of rows → one key per cell
+- `None` → nothing (warned once)
+
+`fmt`, `desc`, `unit`, `better`, `include` and `exclude` work as in `record_all`, and so do `[metrics]` defaults.
+
+**`over=`** names arguments whose calls are combined when the run ends. Numbers become a `Stat` (mean, std, n); a value that is the same on every call is kept as is; anything else is skipped with a note. Calling twice with the same `over` value warns, and both calls count.
+
+**Every value records its call:**
+
+```json
+"call": {"function": "exp.py::evaluate",
+         "args": {"dataset": "cifar", "model": "resnet", "lr": 0.001},
+         "over": {"seed": [0, 1, 2, 3, 4]}, "calls": 5, "sites": ["exp.py:20"]}
+```
+
+The value's `site` is the function's definition. `call.sites` are where it was called. `trace`, tooltips and the provenance appendix show `recorded by evaluate(dataset=cifar, model=resnet, lr=0.001) over seed=0..4`. Freshness comes from §8.2: editing `evaluate` makes these values stale; editing an unrelated function doesn't.
+
+**Bookkeeping never breaks the experiment:**
+- The result passes through unchanged.
+- An exception inside the function records nothing and propagates.
+- A recording problem is a warning, and an error only with `VOUCH_STRICT=1`.
+- Async functions are supported.
+
+Because a tracked value records the exact code, the function, and every argument (seeds included), it can in principle be **recomputed**. See `vouch recompute` in §20.
+
 ### 4.4 API reference
 
 | Call | Purpose |
@@ -1542,6 +1596,7 @@ Tooling: uv, pytest, argparse (no click, to keep the core dependency-free). Opti
 3. ~~`sys.monitoring` tool-id contention~~ **Resolved:** ids 3, 4, 5, 2 are tried in turn; with none free the run records module granularity and says why (§8.2).
 4. **Coarse filesystem mtimes** (FAT, some network mounts) could make the stat-keyed hash cache miss a change. Hash when `mtime_ns` has 1-second granularity?
 5. **v2 candidates:**
+   - `vouch recompute KEY`: for a value recorded by `@vouch.track`, re-import the function at the recorded code state and call it with the recorded arguments (seeds included), comparing within a tolerance. Possible only when every argument was a plain value; calls that took arrays or models record only a description of them.
    - `vouch reproduce RUN`: re-execute the recorded command in a temporary checkout and compare values within tolerance
    - record signing
    - notebook tracking

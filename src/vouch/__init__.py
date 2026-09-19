@@ -15,6 +15,7 @@ then cite them in LaTeX as ``\\vouch{cifar.resnet.acc}``. See SPEC.md.
 
 from .api import (Run, active_run, artifact, claim, input, params, record, record_all, run,
                   table)
+from .track import track
 from .values import Stat
 
 __version__ = "0.1.0.dev0"
@@ -26,4 +27,4 @@ from .tracing import tracker as _tracker  # noqa: E402
 _tracker.start()
 
 __all__ = ["Run", "Stat", "active_run", "artifact", "claim", "input", "params", "record",
-           "record_all", "run", "table", "__version__"]
+           "record_all", "run", "table", "track", "__version__"]

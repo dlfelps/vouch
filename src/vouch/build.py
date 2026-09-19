@@ -127,8 +127,14 @@ def _with_state(tip: str, run: str | None, change: ch.Change | None) -> str:
     return emit.TIP_NEWLINE.join(parts)
 
 
+def _call_line(e: Entry) -> str:
+    from .track import call_text
+    call = e.extra.get("call")
+    return f"recorded by {call_text(call)}" if call else ""
+
+
 def value_tooltip(idx: Index, e: Entry, change: ch.Change | None = None) -> str:
-    lines = [f"{e.key} = {_num(e.raw)}", e.desc or ""]
+    lines = [f"{e.key} = {_num(e.raw)}", e.desc or "", _call_line(e)]
     if e.kind == "table-cell":
         lines.append(f"table {e.parent}")
     lines += _provenance(idx, e, with_site=e.kind != "param")
@@ -158,6 +164,8 @@ def prov_latex(idx: Index, e: Entry, change: ch.Change | None = None) -> str:
     if e.kind == "table-cell":
         first.append(r"table \texttt{" + esc(e.parent or "") + "}")
     lines = [r"\quad ".join(first)]
+    if e.extra.get("call"):
+        lines.append(esc(_call_line(e)))
     where = [r"run \texttt{" + esc(e.run or "?") + "}"]
     if e.site and e.kind != "param":
         where.append(r"\texttt{" + esc(e.site) + "}")

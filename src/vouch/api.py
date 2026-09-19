@@ -181,6 +181,7 @@ class Run:
         self._artifacts: dict[str, dict] = {}
         self._tables: dict[str, dict] = {}
         self._params: dict[str, Any] = {}
+        self._tracked: dict[str, Any] = {}      # @vouch.track(over=...) calls, combined at the end
         self._started = _dt.datetime.now(_dt.timezone.utc)
         self._t0 = time.perf_counter()
         self._entered = False
@@ -362,9 +363,21 @@ class Run:
             if table:
                 _warn("record_all: table= needs tabular data (a DataFrame or list of rows)")
 
+        recorded = self._record_flat(base, flat, fmt=fmt, desc=desc, unit=unit, better=better,
+                                     include=include, exclude=exclude, stats=stats, site=site,
+                                     notes=notes)
+        self._report_bulk(notes, recorded)
+        return values
+
+    def _record_flat(self, base: str | None, flat: Mapping[str, Any], *, fmt: Any = None,
+                     desc: Any = None, unit: Any = None, better: Any = None, include: Any = None,
+                     exclude: Any = None, stats: bool = False, site: str, notes: _Notes,
+                     extra: Mapping[str, Any] | None = None) -> list[str]:
+        """Record {relative key: value} under ``base``; "" as a relative key is ``base`` itself.
+        ``extra`` fields (e.g. @vouch.track's call) are added to every entry."""
         recorded: list[str] = []
         for rel_raw, v in flat.items():
-            rel = sanitize_key(rel_raw)
+            rel = sanitize_key(rel_raw) if rel_raw else ""
             if rel != rel_raw:
                 notes.renamed.append((rel_raw, rel))
             full = join_key(self.prefix, base, rel)
@@ -387,18 +400,18 @@ class Run:
                                 self._pick(desc, full, rel), self._pick(better, full, rel),
                                 site, notes)
             if entry is not None:
+                if extra:
+                    entry.update(extra)
                 self._put(full, entry)
                 recorded.append(full)
+        return recorded
 
-        self._report_bulk(notes, recorded)
-        return values
-
-    def _report_bulk(self, notes: _Notes, recorded: list[str]) -> None:
+    def _report_bulk(self, notes: _Notes, recorded: list[str], who: str = "record_all") -> None:
         if notes.renamed:
-            _warn(f"record_all renamed {len(notes.renamed)} key(s) to fit the key grammar: "
+            _warn(f"{who} renamed {len(notes.renamed)} key(s) to fit the key grammar: "
                   + _preview([f"{a}→{b}" for a, b in notes.renamed]))
         if notes.skipped:
-            _warn(f"record_all skipped {len(notes.skipped)} value(s) that are not recordable "
+            _warn(f"{who} skipped {len(notes.skipped)} value(s) that are not recordable "
                   f"scalars: " + _preview([f"{k} ({why})" for k, why in notes.skipped]))
         for msg in notes.other:
             _warn(msg)
@@ -583,6 +596,9 @@ class Run:
             if self.closed:
                 return self.path
             self.closed = True
+        if self._tracked:
+            from .track import flush
+            flush(self)
         record = self._build_record()
         proj = _project()
         ensure_store(proj.config.store)

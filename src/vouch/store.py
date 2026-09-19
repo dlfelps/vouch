@@ -44,7 +44,11 @@ FIELD_ORDER = ("type", "value", "holds", "hash", "kind", "granularity", "why", "
                "files", "whole_files",
                "python", "platform", "packages", "commit", "dirty", "mean", "std", "n",
                "min", "max", "fmt", "unit", "better", "desc", "columns", "row_key", "rows",
-               "highlight", "second", "midrules", "values", "site")
+               "highlight", "second", "midrules", "values", "call", "function", "args",
+               "over", "calls", "not_in_key", "sites", "site")
+
+# maps written in the order they were recorded (a call's arguments, in signature order)
+KEEP_ORDER = {("values", "*", "call", "args"), ("values", "*", "call", "over")}
 
 
 class RecordError(ValueError):
@@ -80,6 +84,8 @@ def _ordered_keys(path: tuple, mapping: dict) -> list:
         return known + sorted(k for k in mapping if k not in TOP_ORDER)
     if shape in USER_MAPS:
         return sorted(mapping)
+    if shape in KEEP_ORDER:
+        return list(mapping)
     rank = {k: i for i, k in enumerate(FIELD_ORDER)}
     return sorted(mapping, key=lambda k: (rank.get(k, len(rank)), k))
 
