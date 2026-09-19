@@ -375,9 +375,13 @@ def _trace_key(ctx, key: str, args, indent: str = "") -> int:
         st = ctx.states.get(e.run)
         out.append(f"  recorded  {e.site or '-'}   in run {e.run}")
         if e.extra.get("call"):
-            from .track import call_text
+            from .track import call_text, per_call_text
             call = e.extra["call"]
-            out.append(f"  by        {call_text(call)}")
+            out.append(f"  by        {call_text(call)}"
+                       + (f"   (listed in vouch.toml {call['via']})" if call.get("via") else ""))
+            each = per_call_text(call, limit=len(call.get("results") or []))
+            if each:
+                out.append(f"  each call {each}")
             if call.get("sites"):
                 out.append(f"  called at {', '.join(call['sites'][:6])}")
         out.append(f"  command   {' '.join(rec.get('command') or [])}")

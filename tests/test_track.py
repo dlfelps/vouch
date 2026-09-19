@@ -11,7 +11,8 @@ from vouch import cli
 from vouch.config import Config
 from vouch.freshness import assess
 from vouch.store import load_runs
-from vouch.track import TrackError, call_key, call_text, segment, track
+from vouch.track import (TrackError, _flat_result, call_key, call_text, per_call_text, segment,
+                         track)
 from vouch.values import decode
 
 
@@ -67,6 +68,10 @@ def test_decoration_time_errors():
         track(lambda x, seed=0: x, over="seeds")
     with pytest.raises(TrackError, match=r"\['modle'\]"):
         track(key="{modle}")(lambda model: 1)
+    with pytest.raises(TrackError, match="returns="):
+        track(returns=("mean", "mean"))(lambda x: (1, 2))
+    with pytest.raises(TrackError, match="returns="):
+        track(returns=("a b",))(lambda x: 1)
 
 
 def test_call_text():
@@ -74,6 +79,29 @@ def test_call_text():
                       "over": {"seed": [0, 1, 2, 3, 4]}}) == \
         "evaluate(dataset=cifar, lr=0.001) over seed=0..4"
     assert call_text({"function": "f", "args": {}, "over": {"seed": [7, 3]}}) == "f() over seed=7, 3"
+    assert call_text({"function": "f", "args": {}, "over": {"seed": [0, 1, 2]}, "calls": 3}) == \
+        "f() over seed=0..2 (3 calls)"
+
+
+def test_per_call_text():
+    call = {"over": {"seed": [0, 1], "fold": ["a", "b"]}, "results": [0.5, {"$float": "nan"}]}
+    assert per_call_text(call) == "seed=0, fold=a: 0.5; seed=1, fold=b: nan"
+    assert per_call_text({"over": {"seed": list(range(20))}, "results": list(range(20))},
+                         limit=2) == "seed=0: 0; seed=1: 1; ... (+18 more)"
+    assert per_call_text({"over": {"seed": [0]}}) == ""
+
+
+def test_tuple_results_become_one_key_per_element():
+    assert _flat_result((0.9, 0.01)) == {"0": 0.9, "1": 0.01}
+    assert _flat_result((0.9, 0.01), ("mean", "std")) == {"mean": 0.9, "std": 0.01}
+    assert _flat_result(0.9, ("acc",)) == {"acc": 0.9}
+    assert _flat_result(({"a": 1}, 2), ("m", "n")) == {"m.a": 1, "n": 2}
+    assert _flat_result((1, 2, 3), ("a", "b")) == {"0": 1, "1": 2, "2": 3}   # wrong count
+    assert _flat_result([1.0, 2.0]) == {"": (1.0, 2.0)}                     # a list is a series
+
+    import collections
+    Point = collections.namedtuple("Point", "mean std")
+    assert _flat_result(Point(0.9, 0.01)) == {"mean": 0.9, "std": 0.01}
 
 
 # ---------------------------------------------------------------------------
@@ -235,6 +263,40 @@ def test_async_functions(project):
     assert values(project)["f.x_2"]["value"] == 4.0
 
 
+def test_tuple_results_with_over_and_per_call_results(project):
+    project.write("exp.py", '''
+        import vouch
+
+        @vouch.track(over="seed", returns=("mean", "std"), desc="bootstrap {-1}")
+        def boot(model, seed=0):
+            return 0.9 + seed / 100, 0.01 * (seed + 1)
+
+        @vouch.track
+        def pair(x):
+            return x, 2 * x
+
+        @vouch.track(returns=("a", "b"))
+        def wrong(x):
+            return x, x, x
+
+        for s in range(3):
+            boot("resnet", seed=s)
+        pair(1.5)
+        wrong(1); wrong(2)
+    ''')
+    proc = project.run("exp.py", check=True)
+    v = values(project)
+    mean = v["boot.resnet.mean"]
+    assert decode("stat", mean["value"]).n == 3 and mean["desc"] == "bootstrap mean"
+    assert mean["call"]["results"] == [0.9, 0.91, 0.92]
+    assert v["boot.resnet.std"]["call"]["results"] == [0.01, 0.02, 0.03]
+    assert v["boot.resnet.std"]["desc"] == "bootstrap std"
+    assert v["pair.x_1_5.0"]["value"] == 1.5 and v["pair.x_1_5.1"]["value"] == 3.0
+    assert "results" not in v["pair.x_1_5.0"]["call"]                  # one call, no over=
+    assert "wrong.x_1.2" in v
+    assert proc.stderr.count("returned 3 value(s) but returns= names 2") == 1
+
+
 def test_explicit_run_and_dataframe_results(project):
     pytest.importorskip("pandas")
     project.write("exp.py", '''
@@ -290,8 +352,37 @@ def test_call_shows_in_trace_tooltip_and_appendix(project, capsys):
     assert "recorded by evaluate(dataset=cifar) over seed=0..2" in line
     prov = next(ln for ln in text.splitlines() if ln.startswith(r"\vouch@prov{evaluate.cifar.acc}"))
     assert "recorded by evaluate(dataset=cifar) over seed=0..2" in prov
+    assert "each call: seed=0: 0.9; seed=1: 0.91; seed=2: 0.92" in prov
+    assert r"function \texttt{exp.py::evaluate} at \texttt{exp.py:3}, called at " \
+           r"\texttt{exp.py:8}" in prov
+    assert r"run \texttt{exp}\quad \texttt{python" in prov          # the site isn't repeated
+    assert "each call: seed=0: 0.9; seed=1: 0.91; seed=2: 0.92" in line
+    assert "function exp.py::evaluate at exp.py:3, called at exp.py:8" in line
     capsys.readouterr()
     assert cli.main(["trace", "--root", str(project.root), "evaluate.cifar.acc.mean"]) == 0
     out = capsys.readouterr().out
     assert "by        evaluate(dataset=cifar) over seed=0..2" in out
     assert "called at exp.py:8" in out
+    assert "each call seed=0: 0.9; seed=1: 0.91; seed=2: 0.92" in out
+
+
+def test_elements_of_a_tuple_value_are_citable(project, capsys):
+    project.write("vouch.toml", '[[paper]]\nmain = "paper/main.tex"\n')
+    project.write("paper/main.tex", "\\documentclass{article}\n\\usepackage{vouch}\n"
+                  "\\begin{document}\\vouch{ci.1} \\vouch[.2f]{ci.0} \\vouch{own.0}"
+                  "\\end{document}\n")
+    project.write("exp.py", '''
+        import vouch
+
+        vouch.record("ci", (0.91, 0.95), fmt=".3f", desc="95% interval")
+        vouch.record("own", (1, 2), desc="pair")
+        vouch.record("own.0", 7, desc="recorded on its own")
+    ''')
+    project.run("exp.py", check=True)
+    capsys.readouterr()
+    assert cli.main(["build", "--root", str(project.root)]) == 0
+    text = (project.root / "paper/vouch-values.tex").read_text(encoding="utf-8")
+    assert r"\vouch@set{ci.1}{}{0.950}" in text and r"\vouch@set{ci.0}{.2f}{0.91}" in text
+    assert r"\vouch@set{own.0}{}{7}" in text                 # a recorded key beats an element
+    assert cli.main(["trace", "--root", str(project.root), "ci.1"]) == 0
+    assert "95% interval (element 1)" in capsys.readouterr().out

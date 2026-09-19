@@ -31,7 +31,7 @@ from .tex import emit
 from .tex.scan import Document, scan
 from .values import Stat
 
-VALUE_KINDS = ("value", "stat-field", "param", "table-cell")
+VALUE_KINDS = ("value", "stat-field", "element", "param", "table-cell")
 
 
 @dataclasses.dataclass
@@ -133,11 +133,30 @@ def _call_line(e: Entry) -> str:
     return f"recorded by {call_text(call)}" if call else ""
 
 
+def _call_lines(e: Entry) -> list[str]:
+    """What @vouch.track / [[track]] knows about the call, one plain line per fact."""
+    from .track import per_call_text, sites_text
+    call = e.extra.get("call")
+    if not call:
+        return []
+    lines = [_call_line(e)]
+    each = per_call_text(call)
+    if each:
+        lines.append(f"each call: {each}")
+    where = f"function {call.get('function', '?')}" + (f" at {e.site}" if e.site else "")
+    if call.get("sites"):
+        where += f", called at {sites_text(call)}"
+    if call.get("via"):
+        where += f"; listed in vouch.toml {call['via']}"
+    lines.append(where)
+    return lines
+
+
 def value_tooltip(idx: Index, e: Entry, change: ch.Change | None = None) -> str:
-    lines = [f"{e.key} = {_num(e.raw)}", e.desc or "", _call_line(e)]
+    lines = [f"{e.key} = {_num(e.raw)}", e.desc or ""] + _call_lines(e)
     if e.kind == "table-cell":
         lines.append(f"table {e.parent}")
-    lines += _provenance(idx, e, with_site=e.kind != "param")
+    lines += _provenance(idx, e, with_site=e.kind != "param" and not e.extra.get("call"))
     return _with_state(emit.tooltip(lines), e.run, change)
 
 
@@ -164,10 +183,11 @@ def prov_latex(idx: Index, e: Entry, change: ch.Change | None = None) -> str:
     if e.kind == "table-cell":
         first.append(r"table \texttt{" + esc(e.parent or "") + "}")
     lines = [r"\quad ".join(first)]
-    if e.extra.get("call"):
-        lines.append(esc(_call_line(e)))
+    call = e.extra.get("call")
+    if call:
+        lines += _call_latex(e, call)
     where = [r"run \texttt{" + esc(e.run or "?") + "}"]
-    if e.site and e.kind != "param":
+    if e.site and e.kind != "param" and not call:          # a tracked value's site is above
         where.append(r"\texttt{" + esc(e.site) + "}")
     cmd = " ".join(rec.get("command") or [])
     if cmd:
@@ -183,6 +203,25 @@ def prov_latex(idx: Index, e: Entry, change: ch.Change | None = None) -> str:
     if change is not None:
         lines.append(r"\textcolor{vouchchanged}{" + esc(ch.was_text(change)) + "}")
     return r"{\footnotesize " + r"\newline ".join(ln for ln in lines if ln) + "}"
+
+
+def _call_latex(e: Entry, call: dict) -> list[str]:
+    """The appendix lines for a tracked value: the call, each call's result, the code."""
+    from .render import tex_escape as esc
+    from .track import per_call_text, sites_text
+    lines = [esc(_call_line(e))]
+    each = per_call_text(call)
+    if each:
+        lines.append("each call: " + esc(each))
+    fn = r"function \texttt{" + esc(str(call.get("function", "?"))) + "}"
+    if e.site:
+        fn += r" at \texttt{" + esc(e.site) + "}"
+    if call.get("sites"):
+        fn += r", called at \texttt{" + esc(sites_text(call)) + "}"
+    if call.get("via"):
+        fn += r"; listed in \texttt{vouch.toml} " + esc(str(call["via"]))
+    lines.append(fn)
+    return lines
 
 
 def raw_text(x: Any) -> str:

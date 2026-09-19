@@ -27,7 +27,7 @@ from typing import Any, Mapping
 
 from . import console as _console
 from . import fmt as _fmt
-from .config import Config, ConfigError, discover_root
+from .config import Config, ConfigError, discover_root, expand_desc
 from .hashing import hash_path
 from .store import SCHEMA, ensure_store, write_record
 from .tracing import tracker as _tracker
@@ -372,9 +372,11 @@ class Run:
     def _record_flat(self, base: str | None, flat: Mapping[str, Any], *, fmt: Any = None,
                      desc: Any = None, unit: Any = None, better: Any = None, include: Any = None,
                      exclude: Any = None, stats: bool = False, site: str, notes: _Notes,
-                     extra: Mapping[str, Any] | None = None) -> list[str]:
+                     extra: Mapping[str, Any] | None = None,
+                     call_results: Mapping[str, list] | None = None) -> list[str]:
         """Record {relative key: value} under ``base``; "" as a relative key is ``base`` itself.
-        ``extra`` fields (e.g. @vouch.track's call) are added to every entry."""
+        ``extra`` fields (e.g. @vouch.track's call) are added to every entry;
+        ``call_results`` adds each call's own result to that entry's call."""
         recorded: list[str] = []
         for rel_raw, v in flat.items():
             rel = sanitize_key(rel_raw) if rel_raw else ""
@@ -396,12 +398,16 @@ class Run:
                     notes.skipped.append((full, f"list of {len(items)}"))
                     continue
                 v = Stat.of(items) if stats else tuple(items)
+            d = self._pick(desc, full, rel)
+            if isinstance(d, str) and "{" in d:           # "{-1}", "{0}", "{key}" templates
+                d = expand_desc(d, full)
             entry = self._entry(full, v, self._pick(fmt, full, rel), self._pick(unit, full, rel),
-                                self._pick(desc, full, rel), self._pick(better, full, rel),
-                                site, notes)
+                                d, self._pick(better, full, rel), site, notes)
             if entry is not None:
                 if extra:
                     entry.update(extra)
+                if call_results and rel_raw in call_results and "call" in entry:
+                    entry["call"] = {**entry["call"], "results": call_results[rel_raw]}
                 self._put(full, entry)
                 recorded.append(full)
         return recorded

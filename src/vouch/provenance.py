@@ -19,7 +19,7 @@ COLUMNS = ("key", "kind", "rendered", "raw_value", "fmt", "unit", "description",
            "git_dirty", "recorded_at", "duration_s", "freshness", "change_status",
            "previous_value", "acked_at", "cited_at")
 
-KIND = {"value": "value", "stat-field": "value", "param": "param", "claim": "claim",
+KIND = {"value": "value", "stat-field": "value", "element": "value", "param": "param", "claim": "claim",
         "table": "table", "table-cell": "table-cell"}
 
 

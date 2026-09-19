@@ -34,10 +34,11 @@ import inspect
 import os
 from typing import Any, Callable
 
-from .values import (Stat, as_mapping, coerce_scalar, encode_param, flatten, is_number,
-                     sanitize_key, slug_segment)
+from .values import (Stat, as_mapping, coerce_scalar, encode_cell, encode_param, flatten,
+                     is_number, sanitize_key, slug_segment)
 
 KEY_BUDGET = 100          # leave room under the 128-char key limit for output field names
+MAX_PER_CALL = 100        # over= values keep each call's result up to this many calls
 
 
 class TrackError(TypeError):
@@ -143,10 +144,28 @@ def call_key(name: str, arguments: dict[str, Any], template: str | None) -> tupl
 # results -> values
 # ---------------------------------------------------------------------------
 
-def _flat_result(result: Any) -> dict[str, Any] | None:
-    """{relative key: value}; "" is the base key itself (a scalar result)."""
+def _flat_result(result: Any, returns: tuple[str, ...] = ()) -> dict[str, Any] | None:
+    """{relative key: value}; "" is the base key itself (a scalar result).
+
+    A tuple is several results (``return mean, std``): one key per element, named by
+    ``returns`` or else by position (``.0``, ``.1``). A namedtuple uses its field names.
+    A list of numbers is one value, a series.
+    """
+    if isinstance(result, tuple) and hasattr(result, "_fields") and not returns:
+        returns = tuple(result._fields)
+    if isinstance(result, tuple) or (returns and not isinstance(result, (list, dict))):
+        items = result if isinstance(result, tuple) else (result,)
+        names = returns if len(returns) == len(items) else tuple(str(i) for i in range(len(items)))
+        out: dict[str, Any] = {}
+        for name, item in zip(names, items):
+            sub = _flat_result(item)
+            if sub is None:
+                out[name] = item                  # reported as not recordable, by name
+            else:
+                out.update({f"{name}.{k}" if k else name: v for k, v in sub.items()})
+        return out
     result = coerce_scalar(result)
-    if isinstance(result, (Stat, bool, int, float, str, tuple)):
+    if isinstance(result, (Stat, bool, int, float, str)):
         return {"": result}
     from .api import _as_rows
     rows = _as_rows(result)
@@ -164,9 +183,9 @@ class _Combined:
     """Calls that differ only in their ``over=`` arguments, combined at run end."""
 
     def __init__(self, base: str, fn_ref: str, arguments: dict, over: tuple[str, ...],
-                 meta: dict, site: str):
+                 meta: dict, site: str, via: str = "@vouch.track"):
         self.base, self.fn_ref, self.arguments, self.over = base, fn_ref, arguments, over
-        self.meta, self.site = meta, site
+        self.meta, self.site, self.via = meta, site, via
         self.over_values: list[dict] = []
         self.results: list[dict[str, Any]] = []
         self.call_sites: list[str] = []
@@ -183,12 +202,15 @@ def flush(run) -> None:
             for rel, v in res.items():
                 fields.setdefault(rel, []).append(coerce_scalar(v))
         flat: dict[str, Any] = {}
+        per_call: dict[str, list] = {}
         for rel, vals in fields.items():
             if len(vals) != len(comb.results):
                 notes.skipped.append((f"{base}.{rel}" if rel else base,
                                       f"returned by {len(vals)} of {len(comb.results)} calls"))
             elif all(is_number(v) and not isinstance(v, Stat) for v in vals):
                 flat[rel] = Stat.of(vals)
+                if len(vals) <= MAX_PER_CALL:        # each call's own result, in call order
+                    per_call[rel] = [encode_cell(v) for v in vals]
             elif all(v == vals[0] for v in vals):
                 flat[rel] = vals[0]
             else:
@@ -201,9 +223,11 @@ def flush(run) -> None:
                 "sites": sorted(set(comb.call_sites))}
         if comb.not_in_key:
             call["not_in_key"] = comb.not_in_key
+        if comb.via != "@vouch.track":
+            call["via"] = comb.via
         recorded = run._record_flat(base, flat, site=comb.site, notes=notes, extra={"call": call},
-                                    **comb.meta)
-        run._report_bulk(notes, recorded, who=f"@vouch.track {comb.fn_ref}")
+                                    call_results=per_call, **comb.meta)
+        run._report_bulk(notes, recorded, who=f"{comb.via} {comb.fn_ref}")
     run._tracked.clear()
 
 
@@ -220,6 +244,16 @@ def check_names(names: set[str], params: list[str], what: str, fname: str) -> No
         raise TrackError(f"{what} names {bad}, which {fname}() doesn't take")
 
 
+def check_returns(returns: Any, what: str) -> tuple[str, ...]:
+    """``returns=`` as a tuple of key segments: names for the elements of a tuple result."""
+    names = (returns,) if isinstance(returns, str) else tuple(returns or ())
+    bad = [n for n in names if not isinstance(n, str) or not n or slug_segment(n) != n]
+    if bad or len(set(names)) != len(names):
+        raise TrackError(f"{what} must be distinct names made of letters, digits, _ and -; "
+                         f"got {list(names)}")
+    return names
+
+
 def template_fields(key: str | None) -> set[str]:
     if not key:
         return set()
@@ -231,12 +265,13 @@ class Tracked:
     """A function whose results are recorded: how to key a call, and how to record it."""
 
     def __init__(self, *, name: str, qualname: str, code, over: tuple[str, ...] = (),
-                 key: str | None = None, meta: dict | None = None, via: str = "@vouch.track"):
+                 key: str | None = None, returns: tuple[str, ...] = (), meta: dict | None = None,
+                 via: str = "@vouch.track"):
         self.fname, self.qualname, self.code = name, qualname, code
-        self.over, self.key, self.via = over, key, via
+        self.over, self.key, self.returns, self.via = over, key, returns, via
         self.meta = {k: (meta or {}).get(k) for k in ("fmt", "desc", "unit", "better",
                                                       "include", "exclude")}
-        self.warned_none = self.warned_desc = False
+        self.warned_none = self.warned_desc = self.warned_returns = False
 
     def record(self, arguments: dict[str, Any], result: Any, call_site: str) -> None:
         """Record one call. ``arguments``: signature order, defaults applied, no self."""
@@ -254,17 +289,23 @@ class Tracked:
         fn_ref = f"{cfg.rel(self.code.co_filename)}::{self.qualname}"
         site = f"{cfg.rel(self.code.co_filename)}:{self.code.co_firstlineno}"
         described = {k: describe(v) for k, v in arguments.items()}
-        flat = _flat_result(result)
+        if self.returns and not self.warned_returns:
+            got = len(result) if isinstance(result, tuple) else 1
+            if got != len(self.returns):
+                _warn(f"{who} returned {got} value(s) but returns= names {len(self.returns)} "
+                      f"{list(self.returns)}; keyed by position instead")
+                self.warned_returns = True
+        flat = _flat_result(result, self.returns)
         if flat is None:
             _warn(f"{who} returned a {type(result).__name__}; return a number, a dict of "
-                  f"numbers, a Stat or a DataFrame")
+                  f"numbers, a tuple, a Stat or a DataFrame")
             return
         run = active_run()
         if self.over:
             comb = run._tracked.get(base)
             if comb is None:
                 comb = run._tracked[base] = _Combined(base, fn_ref, described, self.over,
-                                                      self.meta, site)
+                                                      self.meta, site, self.via)
                 comb.not_in_key = left_out
             if over_values in comb.over_values:
                 _warn(f"{self.fname}() called twice with "
@@ -278,6 +319,8 @@ class Tracked:
         call = {"function": fn_ref, "args": described, "sites": [call_site]}
         if left_out:
             call["not_in_key"] = left_out
+        if self.via != "@vouch.track":
+            call["via"] = self.via
         recorded = run._record_flat(base, flat, site=site, notes=notes, extra={"call": call},
                                     **self.meta)
         if self.warned_desc:
@@ -366,18 +409,22 @@ def arguments_from_frame(code, f_locals: dict) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def track(fn: Callable | None = None, *, key: str | None = None, name: str | None = None,
-          over: str | tuple[str, ...] = (), fmt: Any = None, desc: Any = None, unit: Any = None,
-          better: Any = None, include: Any = None, exclude: Any = None):
+          over: str | tuple[str, ...] = (), returns: str | tuple[str, ...] = (),
+          fmt: Any = None, desc: Any = None, unit: Any = None, better: Any = None,
+          include: Any = None, exclude: Any = None):
     """Record a function's return value on every call, keyed by its arguments.
 
     ``over=`` names arguments (e.g. ``"seed"``) whose calls are combined into a Stat;
-    ``key=`` is a template over argument names; ``fmt``/``desc``/``unit``/``better``/
-    ``include``/``exclude`` work as in ``record_all``.
+    ``key=`` is a template over argument names; ``returns=("mean", "std")`` names the
+    elements of a tuple result (else they are keyed ``.0``, ``.1``);
+    ``fmt``/``desc``/``unit``/``better``/``include``/``exclude`` work as in ``record_all``.
     """
     if fn is None:
-        return lambda f: track(f, key=key, name=name, over=over, fmt=fmt, desc=desc, unit=unit,
-                               better=better, include=include, exclude=exclude)
+        return lambda f: track(f, key=key, name=name, over=over, returns=returns, fmt=fmt,
+                               desc=desc, unit=unit, better=better, include=include,
+                               exclude=exclude)
     over_names = (over,) if isinstance(over, str) else tuple(over)
+    returns_names = check_returns(returns, "@vouch.track(returns=...)")
     sig = inspect.signature(fn)
     check_names(set(over_names), list(sig.parameters), "@vouch.track(over=...)", fn.__name__)
     check_names(template_fields(key), list(sig.parameters), f"@vouch.track(key={key!r})",
@@ -386,7 +433,7 @@ def track(fn: Callable | None = None, *, key: str | None = None, name: str | Non
     skip_first = bool(params) and params[0].name in ("self", "cls")
     tracked = Tracked(name=sanitize_key(name) if name else function_name(fn),
                       qualname=getattr(fn, "__qualname__", fn.__name__), code=fn.__code__,
-                      over=over_names, key=key,
+                      over=over_names, key=key, returns=returns_names,
                       meta={"fmt": fmt, "desc": desc, "unit": unit, "better": better,
                             "include": include, "exclude": exclude})
     DECORATED.add(fn.__code__)
@@ -436,4 +483,29 @@ def call_text(call: dict) -> str:
     text = f"{fn}({args})"
     for k, vs in (call.get("over") or {}).items():
         text += f" over {k}={_span(list(vs))}"
+    if call.get("over") and call.get("calls"):
+        text += f" ({call['calls']} calls)"
     return text
+
+
+def per_call_text(call: dict, limit: int = 12) -> str:
+    """Each call's own result, labelled by its over= values: ``seed=0: 0.934, seed=1: 0.921``."""
+    from .values import decode_cell
+    results = call.get("results")
+    if not results:
+        return ""
+    over = call.get("over") or {}
+    parts = []
+    for i, r in enumerate(results[:limit]):
+        label = ", ".join(f"{k}={vs[i]}" for k, vs in over.items() if i < len(vs))
+        v = decode_cell(r)
+        num = f"{v:.6g}" if isinstance(v, float) else str(v)
+        parts.append(f"{label}: {num}" if label else num)
+    more = len(results) - limit
+    return "; ".join(parts) + (f"; ... (+{more} more)" if more > 0 else "")
+
+
+def sites_text(call: dict, limit: int = 4) -> str:
+    sites = list(call.get("sites") or [])
+    more = len(sites) - limit
+    return ", ".join(sites[:limit]) + (f" (+{more} more)" if more > 0 else "")

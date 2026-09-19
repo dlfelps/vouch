@@ -17,17 +17,19 @@ from __future__ import annotations
 
 import dataclasses
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from .config import Config
 from .store import RecordError, read_record, runs_dir, verify_record
 from .values import STAT_FIELDS, Stat, decode, decode_cell, join_key, slug_segment
 
+MAX_ELEMENTS = 64          # a tuple value's elements are citable as key.0, key.1, ... up to this
+
 
 @dataclasses.dataclass
 class Entry:
     key: str
-    kind: str                  # value | stat-field | param | claim | table | table-cell
+    kind: str                  # value | stat-field | element | param | claim | table | table-cell
     raw: Any                   # decoded: int, float, bool, str, tuple, Stat
     run: str | None = None
     site: str | None = None
@@ -35,7 +37,7 @@ class Entry:
     unit: str | None = None
     desc: str | None = None
     better: str | None = None
-    parent: str | None = None  # stat-field: the Stat's key; table-cell: the table's key
+    parent: str | None = None  # stat-field/element: the value's key; table-cell: the table's key
     extra: dict = dataclasses.field(default_factory=dict)
 
 
@@ -131,6 +133,9 @@ class Index:
             self._add(Entry(key, "value", raw, run=run, site=v.get("site"), extra=extra, **meta), src)
             if isinstance(raw, Stat):
                 self._add_stat_fields(key, raw, run, v.get("site"), meta, src, extra)
+            elif isinstance(raw, tuple) and len(raw) <= MAX_ELEMENTS:
+                self._add_elements(key, raw, run, v.get("site"), meta, src, extra,
+                                   taken=rec["values"])
 
         for name, payload in (rec.get("params") or {}).items():
             key = join_key(run, "param", name)
@@ -181,6 +186,18 @@ class Index:
             self._add(Entry(f"{key}.{field}", "stat-field", val, run=run, site=site, fmt=fmt,
                             unit=meta["unit"], desc=desc,
                             better=meta["better"] if field == "mean" else None, parent=key,
+                            extra=dict(extra or {})), src)
+
+    def _add_elements(self, key: str, t: tuple, run: str, site: str | None, meta: dict,
+                      src: str, extra: dict, taken: Mapping) -> None:
+        """``key.0``, ``key.1``, ...: each element of a tuple value, citable on its own."""
+        for i, val in enumerate(t):
+            sub = f"{key}.{i}"
+            if sub in taken:                      # a value recorded under that key wins
+                continue
+            desc = f"{meta['desc']} (element {i})" if meta["desc"] else f"element {i} of {key}"
+            self._add(Entry(sub, "element", val, run=run, site=site, fmt=meta["fmt"],
+                            unit=meta["unit"], desc=desc, better=meta["better"], parent=key,
                             extra=dict(extra or {})), src)
 
     # -- queries ----------------------------------------------------------------

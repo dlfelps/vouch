@@ -63,7 +63,8 @@ def test_listed_functions_are_recorded_with_their_calls(project):
     assert t["value"] == 1200.0 and t["desc"] == "images per second" and t["unit"] == "img/s"
     assert t["site"] == "models.py:9"                                  # the definition
     assert t["call"] == {"function": "models.py::throughput",
-                         "args": {"model": "resnet", "batch": 64}, "sites": ["exp.py:4"]}
+                         "args": {"model": "resnet", "batch": 64}, "sites": ["exp.py:4"],
+                         "via": "[[track]]"}
     assert "matched no function" not in proc.stderr
 
 
@@ -95,6 +96,28 @@ def test_over_and_key_template(project):
     assert call["args"] == {"dataset": "cifar", "model": "resnet", "lr": 0.001}
     assert call["sites"] == ["exp.py:6"]
     assert v["cifar.resnet.acc"]["fmt"] == ".1pct"
+
+
+def test_returns_names_tuple_elements(project):
+    project.write("vouch.toml", '''
+        [[track]]
+        function = "exp.py::boot"
+        returns = ["mean", "std"]
+        desc = "bootstrap accuracy ({-1})"
+    ''')
+    project.write("exp.py", '''
+        import vouch
+
+        def boot(model):
+            return 0.9, 0.01
+
+        boot("vit")
+    ''')
+    project.run("exp.py", check=True)
+    v = values(project)
+    assert v["boot.vit.mean"]["value"] == 0.9 and v["boot.vit.std"]["value"] == 0.01
+    assert v["boot.vit.std"]["desc"] == "bootstrap accuracy (std)"
+    assert v["boot.vit.std"]["call"]["via"] == "[[track]]"
 
 
 def test_a_decorated_function_is_recorded_once(project):
@@ -152,6 +175,10 @@ def test_mistakes_are_reported_not_raised(project):
         [[track]]
         function = "models.py::Trainer.fit"
         colour = "red"
+
+        [[track]]
+        function = "models.py::evaluate"
+        returns = ["a", "a"]
     ''')
     project.write("models.py", MODELS)
     project.write("exp.py", '''
@@ -169,6 +196,7 @@ def test_mistakes_are_reported_not_raised(project):
     assert "over= names ['seed'], which throughput() doesn't take" in err
     assert "'models.py::evaluat' matched no function that ran" in err
     assert "unknown field(s) ['colour']" in err
+    assert "returns= must be distinct names" in err
     assert "Trainer.fit.epochs_1" in values(project)       # a stray field doesn't stop it
     assert err.count("matched no function") == 1
 

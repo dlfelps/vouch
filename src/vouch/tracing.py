@@ -198,8 +198,8 @@ class Tracker:
         raw = self._cfg.data.get("track") or []
         if isinstance(raw, dict):
             raw = [raw]
-        allowed = {"function", "over", "key", "name", "fmt", "desc", "unit", "better",
-                   "include", "exclude"}
+        allowed = {"function", "over", "key", "returns", "name", "fmt", "desc", "unit",
+                   "better", "include", "exclude"}
         for entry in raw:
             if not isinstance(entry, dict) or "function" not in entry:
                 self.problems.append("every [[track]] needs function = \"path.py::name\"")
@@ -210,7 +210,13 @@ class Tracker:
             pats = entry["function"]
             pats = [pats] if isinstance(pats, str) else list(pats)
             over = entry.get("over", ())
-            self.rules.append({"patterns": pats, "matched": 0,
+            from .track import TrackError, check_returns
+            try:
+                returns = check_returns(entry.get("returns"), f"[[track]] {entry['function']!r} returns=")
+            except TrackError as exc:
+                self.problems.append(str(exc))
+                continue
+            self.rules.append({"patterns": pats, "matched": 0, "returns": returns,
                                "over": (over,) if isinstance(over, str) else tuple(over),
                                "key": entry.get("key"), "name": entry.get("name"),
                                "meta": {k: entry.get(k) for k in
@@ -255,7 +261,7 @@ class Tracker:
                     return None
                 t = Tracked(name=sanitize_key(rule["name"]) if rule["name"] else function_name_of(qual),
                             qualname=qual, code=code, over=rule["over"], key=rule["key"],
-                            meta=rule["meta"], via="[[track]]")
+                            returns=rule["returns"], meta=rule["meta"], via="[[track]]")
                 self.auto[code] = t
                 sys.monitoring.set_local_events(self.tool, code, sys.monitoring.events.PY_RETURN)
                 return t

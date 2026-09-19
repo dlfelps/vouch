@@ -433,12 +433,25 @@ for model in ("resnet", "vit"):
 - `key="{dataset}.{model}"` replaces the scheme with a template, checked against the signature when the function is decorated.
 
 **Results:**
-- a number, `Stat` or tuple → the base key
+- a number or `Stat` → the base key
+- a tuple → **one key per element**, because `return mean, std` is several results: `.0`, `.1`, … by position, or named with `returns=("mean", "std")` (`.mean`, `.std`). A namedtuple uses its field names. Each element is its own value, so each can be cited on its own, and `over=` combines each element separately.
 - a dict or dataclass → one key per (nested) field
 - a DataFrame or list of rows → one key per cell
+- a list of numbers → one value (a series); its elements are citable as `key.0`, `key.1`, … (§4.5)
 - `None` → nothing (warned once)
 
-`fmt`, `desc`, `unit`, `better`, `include` and `exclude` work as in `record_all`, and so do `[metrics]` defaults.
+```python
+@vouch.track(returns=("mean", "std"), desc="bootstrap accuracy ({-1})")
+def bootstrap(model: str, n: int = 1000):
+    ...
+    return mean, std
+# -> bootstrap.vit.n_1000.mean  "bootstrap accuracy (mean)"
+#    bootstrap.vit.n_1000.std   "bootstrap accuracy (std)"
+```
+
+A `returns=` whose length doesn't match what the function returned warns once and falls back to positions. If the pair really is a mean and a standard deviation and you want it typeset as one `mean ± std`, return `vouch.Stat(mean, std, n)` instead.
+
+`fmt`, `desc`, `unit`, `better`, `include` and `exclude` work as in `record_all`, and so do `[metrics]` defaults. A `desc` may use the same `{0}`, `{-1}`, `{key}` templates as `[metrics]`, filled per key.
 
 **`over=`** names arguments whose calls are combined when the run ends. Numbers become a `Stat` (mean, std, n); a value that is the same on every call is kept as is; anything else is skipped with a note. Calling twice with the same `over` value warns, and both calls count.
 
@@ -447,10 +460,16 @@ for model in ("resnet", "vit"):
 ```json
 "call": {"function": "exp.py::evaluate",
          "args": {"dataset": "cifar", "model": "resnet", "lr": 0.001},
-         "over": {"seed": [0, 1, 2, 3, 4]}, "calls": 5, "sites": ["exp.py:20"]}
+         "over": {"seed": [0, 1, 2, 3, 4]}, "calls": 5,
+         "results": [0.931, 0.935, 0.929, 0.934, 0.932], "sites": ["exp.py:20"]}
 ```
 
-The value's `site` is the function's definition. `call.sites` are where it was called. `trace`, tooltips and the provenance appendix show `recorded by evaluate(dataset=cifar, model=resnet, lr=0.001) over seed=0..4`. Freshness comes from §8.2: editing `evaluate` makes these values stale; editing an unrelated function doesn't.
+- The value's `site` is the function's definition. `call.sites` are where it was called.
+- `call.results` holds each call's own result, in the order of the `over` lists (for combined values, up to 100 calls). The mean ± std in the paper can always be traced back to the per-seed numbers behind it.
+- `call.via` is `"[[track]]"` when the function was listed in `vouch.toml` rather than decorated (§4.3b), because the code itself then shows no decorator.
+- `vouch trace`, tooltips and the provenance appendix (§7.4) show all of it: `recorded by evaluate(dataset=cifar, model=resnet, lr=0.001) over seed=0..4 (5 calls)`, each call's result, and the function with its definition and call sites.
+
+Freshness comes from §8.2: editing `evaluate` makes these values stale; editing an unrelated function doesn't.
 
 **Bookkeeping never breaks the experiment:**
 - The result passes through unchanged.
@@ -472,8 +491,8 @@ desc     = "top-1 test accuracy"
 
 [[track]]
 function = ["models.py::Trainer.fit", "*::score_*"]   # a list is fine; no "::" means any file
-key      = "{dataset}.{model}"                   # the same fields as the decorator:
-                                                 # over key name fmt desc unit better include exclude
+key      = "{dataset}.{model}"                   # the same fields as the decorator: over key
+returns  = ["mean", "std"]                       # returns name fmt desc unit better include exclude
 ```
 
 ```console
@@ -523,6 +542,8 @@ Module-level functions act on the active run: the explicit one if inside a `with
 | `Stat` | `stat` | `mean \pm std` |
 
 NaN and ±inf are stored as `{"$float": "nan"}` etc. Recording one prints a warning: a non-finite number in a paper is almost always a bug.
+
+**Citing part of a value.** A `Stat` exposes `key.mean`, `key.std`, `key.n`, `key.min`, `key.max` and `key.ci95`. A `tuple` value (up to 64 elements) exposes each element by position: `vouch.record("ci", (0.91, 0.95))` makes `\vouch{ci.0}` and `\vouch{ci.1}` citable, each with the value's fmt and unit, and each overridable with `\vouch[fmt]{ci.1}`. A key recorded explicitly under the same name (`ci.0`) takes precedence over the element.
 
 ### 4.6 Validation, with warnings phrased as fixes
 
@@ -812,7 +833,8 @@ Hover tooltips turned out not to be portable. Tested in 2026-09: Chrome's and Ed
 
 - the key and its rendered value, with "cited on p. 1, 3" (each page number links back)
 - the description, the raw value, and the table it belongs to (for table cells)
-- run, file:line and command
+- for a value recorded by a tracked function (§4.3a, §4.3b): the call (`recorded by evaluate(dataset=cifar, model=resnet, lr=0.001) over seed=0..2 (3 calls)`), each call's own result (`each call: seed=0: 0.936888; seed=1: 0.922687; seed=2: 0.939121`), and the function with its definition and call sites (`function train.py::evaluate at train.py:6, called at train.py:20`), plus "listed in `vouch.toml` [[track]]" when it wasn't decorated
+- run, file:line (for a tracked value, the definition above) and command
 - date, commit, and the run's current state (`fresh`, `STALE – models.py::f changed`, …)
 - for an unacknowledged change, "CHANGED: was 93.2% (acked 2026-09-10)" in the highlight color
 
@@ -830,6 +852,8 @@ run cifar_resnet · experiments/train.py:88
 python experiments/train.py --model resnet50 --seeds 5
 2026-09-12 14:03 UTC · git 0fdc530 · state: fresh
 ```
+
+A tracked value's tooltip carries the same call lines as its appendix entry.
 
 A tooltip is an unbreakable box, so claim prose gets its tooltip **word by word**: the claim still breaks across lines normally. A word that is itself a `\vouch{…}` keeps its own tooltip.
 
