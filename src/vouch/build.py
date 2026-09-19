@@ -414,6 +414,9 @@ def prepare_paper(cfg: Config, idx: Index, paper: dict) -> PaperPlan:
             issues.append(Issue("figure-missing", "warning",
                                 f"\\includegraphics{{{c.written}}}: file not found", c.file, c.line))
 
+    from .tex.lint import lint
+    issues += lint(doc, idx, cfg)
+
     rendered: dict[tuple[str, str], Rendered] = {}
     for key in sorted(idx.entries):
         e = idx.entries[key]
