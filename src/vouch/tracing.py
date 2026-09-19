@@ -163,7 +163,7 @@ class Tracker:
                     if t is not None:
                         # a [[track]] function: keep firing, note this call's arguments
                         frame = sys._getframe(1)
-                        from .track import arguments_from_frame
+                        from .tracked import arguments_from_frame
                         self.pending[id(frame)] = (arguments_from_frame(code, frame.f_locals),
                                                    self._site(frame.f_back), perf_counter())
                         return None
@@ -212,7 +212,7 @@ class Tracker:
             pats = entry["function"]
             pats = [pats] if isinstance(pats, str) else list(pats)
             over = entry.get("over", ())
-            from .track import TrackError, check_returns, check_time
+            from .tracked import TrackError, check_returns, check_time
             try:
                 returns = check_returns(entry.get("returns"), f"[[track]] {entry['function']!r} returns=")
                 time_name, time_asked = check_time(entry.get("time"),
@@ -239,7 +239,7 @@ class Tracker:
     def _match(self, code):
         """The Tracked for a code object a [[track]] rule names, or None."""
         from fnmatch import fnmatchcase
-        from .track import (DECORATED, Tracked, TrackError, check_names, function_name_of,
+        from .tracked import (DECORATED, Tracked, TrackError, check_names, function_name_of,
                             signature_order, template_fields)
         if code in DECORATED or self._cfg is None or code.co_name.startswith("<"):
             return None                                # modules, lambdas, comprehensions

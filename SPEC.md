@@ -1396,11 +1396,14 @@ imagenet.convnext.acc · ConvNeXt-T top-1 on ImageNet · run: python experiments
 cifar.vit.acc · 91.2% → 72.4% · SUSPICIOUS (large move) · main.tex:118, main.tex:203
 ```
 
-Projects with more than 300 keys get an index in `CATALOG.md` (prefix, count, one-line summary) and one file per prefix under `.vouch/catalog/`.
+Projects with more than 300 keys get an index in `CATALOG.md` (prefix, count, one-line summary) and one file per prefix under `.vouch/catalog/`. `vouch catalog` rewrites it on demand. Aliases get one line each (`resnet.* → evaluate.cifar.resnet.*`); timing values carry a `timing` tag.
 
 ### 13.2 Lookup and insertion commands
 
-**`vouch search`** ranks keys with BM25 over a document per key: key segments (split on `.`, `_`, `-` and camelCase), description, run id, unit, parameter names and table names. A small built-in synonym list (acc/accuracy, lr/learning rate, std/deviation, n/seeds/samples, …) helps. It is stdlib-only, with no embeddings.
+**`vouch search`** ranks keys with BM25 over a document per key: key segments (split on `.`, `_`, `-` and camelCase), description, run id, unit, a tracked call's function and arguments, and table columns. A small built-in synonym list (acc/accuracy, lr/learning rate, std/deviation, n/seeds/samples, time/how long/took, …) helps. It is stdlib-only, with no embeddings.
+- Stat subfields (`.mean`, `.std`, …) are searched only when the query names one ("standard deviation").
+- Timing values rank lower unless the query is about time.
+- Pending (`vouch.expect`) keys are found too.
 
 ```console
 $ vouch search "vit accuracy cifar"
@@ -1419,7 +1422,7 @@ top-1 test accuracy on CIFAR-10, mean ± std over seeds · higher is better · f
 subfields: .mean 93.2\% · .std 0.4\% · .n 5 · .ci95 [92.7, 93.7]
 ```
 
-**`vouch compare`** does the arithmetic and writes the code that makes it citable. For two Stats it also reports the difference in pooled standard deviations and, if SciPy is installed, a Welch t-test p-value. An agent can then write "significantly" only when that is true.
+**`vouch compare`** does the arithmetic and writes the code that makes it citable. For two Stats it also reports the difference in pooled standard deviations and a Welch t-test p-value (computed with the standard library: Student's t through the regularized incomplete beta function). When p ≥ 0.05 it says so: don't write "significantly". `--write` appends the definitions to the first values module, and refuses if either key is already defined there. `better=` decides the winner, so for a lower-is-better metric the claim is `vouch.lt(winner, loser)`.
 
 ```console
 $ vouch compare cifar.resnet.acc cifar.vit.acc
@@ -1449,6 +1452,8 @@ main.tex:140  3{,}014   → ambiguous: compl.words (3014), sweep.n_configs (3014
 ```
 
 `--apply` rewrites only unique exact matches and keeps any surrounding math delimiters. Ambiguous and no-source literals are never touched.
+- A match is unique when exactly one key matches at the best-ranked kind: a value before a param, a param before a Stat field, a Stat field before a table cell. So a recorded value and the table cell that repeats it don't make a literal ambiguous.
+- Line endings are kept. `--json` gives the same classification to an agent.
 
 ### 13.3 Placeholders instead of invention
 
@@ -1508,11 +1513,33 @@ It ends with a command cheat-sheet.
   "hooks": [{"type": "command", "command": "vouch hook claude"}]}]}}
 ```
 
-`vouch hook claude` reads the hook payload from stdin and ignores anything that isn't a `.tex` file in a configured paper. For those, it checks just the edited file for `unknown-key`, `bare-number`/`no-source` (with suggestions), `pending` and malformed macros. If it finds problems, it prints them with their fixes to stderr and exits `2`, which feeds them back to the agent in the same turn, so a mistake is corrected immediately instead of at commit time.
+`vouch hook claude` reads the hook payload from stdin and ignores anything that isn't a `.tex` file in a configured paper. For those, it checks just the edited file for:
+- unknown keys, with did-you-mean (a key is known if a run, a definition, or an expectation provides it, including definitions added to `vouch_values.py` since the last build)
+- malformed macros (`\vouch{` never closed, `\vouchclaim` without its prose)
+- typed numbers: the exact `\vouch[fmt]{key}` to replace each with, or "matches no recorded value"
 
-**Budget:** under 200 ms. It is stdlib-only and reads a precomputed index, `.vouch/cache/index.json`, which `build` writes.
+If it finds problems, it prints them with their fixes to stderr and exits `2`, which feeds them back to the agent in the same turn, so a mistake is corrected immediately instead of at commit time. Pending keys are not reported here: citing one is the approved move, and `check` and `todo` list them.
 
-An optional `--stop-gate` also installs a `Stop` hook running `vouch check --strict --quiet`. It is off by default, because blocking an agent from finishing is intrusive.
+```
+vouch: paper/results.tex has 3 problem(s) -- fix them now:
+  line 1: 93.2% is typed by hand; it is cifar.resnet.acc.mean: replace it with \vouch[.1pct]{cifar.resnet.acc.mean}
+  line 1: unknown key cifar.resnt.acc: no run, definition or vouch.expect provides it (did you mean cifar.resnet.acc?)
+  line 2: \vouchclaim takes two arguments: \vouchclaim{key}{the prose it vouches for}
+```
+
+**Budget.** It is stdlib-only and reads a precomputed index, `.vouch/cache/index.json` (keys, pending keys, defined keys, and the sorted number index the lint matches against), which `build` writes. A tiny entry point checks the payload for `.tex` before importing anything else. The package's public API loads lazily, and CLI processes don't start function tracking.
+
+Measured on a Windows machine whose bare `python -c pass` takes 115 ms:
+- about 175 ms for a non-tex edit
+- about 300 ms for a tex edit (about 20 ms of it is the check itself)
+
+On Linux and macOS, where interpreter start is a fraction of that, it is well under 200 ms.
+
+**`vouch init --agents [skill,rules,hook] [--yes] [--stop-gate]`:**
+- It prints a unified diff of every file it would write. Without `--yes` it writes only after a yes at a terminal, and never when run non-interactively.
+- The rules block replaces an existing `<!-- vouch -->` block in place.
+- The hook merges into existing settings and never duplicates itself. It uses `vouch hook claude` when `vouch` is on `PATH`; otherwise it uses this Python's absolute path, written to `.claude/settings.local.json`, since such a path is not portable.
+- `--stop-gate` also installs a `Stop` hook, `vouch hook stop`. It runs `vouch check --strict` and exits 2 with the issues, so an agent can't finish while the gate fails, and it steps aside when Claude Code reports that the stop hook is already active. It is off by default, because blocking an agent from finishing is intrusive.
 
 ### 13.6 JSON output (`schema: vouch/1`)
 
@@ -1545,7 +1572,7 @@ Every command's `--json` output uses the same envelope:
   8. pending
   9. lint
 - **Fix kinds:** `command` (run this); `edit` (file, line, old text → new text); `build` (run `vouch build`); `human` (needs the user: ack, accept, or a judgement).
-- **Compatibility:** field names are stable within `vouch/1`; additions are allowed, removals need `vouch/2`. The schema ships as `vouch/schema/v1.json` and is tested.
+- **Compatibility:** field names are stable within `vouch/1`; additions are allowed, removals need `vouch/2`. The schema ships as `vouch/schema/v1.json`, and the tests validate the `--json` output of `check`, `search`, `cite`, `todo`, `suggest`, `compare`, `ls`, `status` and `changes` against it.
 
 ### 13.7 MCP server (optional extra `vouch[mcp]`)
 
@@ -1698,30 +1725,40 @@ imported 24 values into run imagenet_eval (prefix imagenet) · granularity: decl
 
 ```
 src/vouch/
-  __init__.py        public API: run, record, claim, input, artifact, table, params, expect, Stat,
-                     derive, claim (decorator), table (decorator), gt/ge/lt/le/between/approx
-  api.py             Run, the implicit run, finalize, validation
+  __init__.py        public API, loaded lazily on first use (record, track, derive, ...);
+                     starts function tracking and the savefig hook -- except in the CLI itself
+  _entry.py          the `vouch` command's entry: non-tex edit-hook calls return before any import
+  api.py             Run, the implicit run, finalize, validation, table encoding
+  tracked.py         @vouch.track: keys from arguments, over= combining, timing, call metadata
+  tracing.py         sys.monitoring tracking, [[track]] rules, child-process detection
+  exec.py            python -m vouch.exec
+  figures.py         the matplotlib savefig hook (a meta-path finder, never an import)
   store.py           records: canonical JSON, deterministic writer, record_hash
-  hashing.py         semantic unit hashes, file/dir hashes, hash cache
-  units.py           AST → units (module/class/function), qualname resolution
-  tracing.py         sys.monitoring tracking, multiprocessing/fork detection, module fallback
-  fmt.py             format grammar → LaTeX, rounding, Stat/tuple/unit/siunitx
-  derive.py          values-module evaluation, accessor, cache, derived.json
+  hashing.py         file/dir hashes, hash cache
+  units.py           AST -> units (module/class/function), semantic hashes
+  values.py          value encoding, Stat, key grammar
+  verdict.py         claim helpers (gt, between, approx, ...) and Verdict margins
+  derived.py         vouch_values.py: evaluation, accessor, expect/pending, derived.json
+  valuesmod.py       the values modules and the keys they define, read without running them
+  index.py           every citable key: runs, derived values, aliases, pending
+  fmt.py  render.py  format grammar -> LaTeX, rounding, Stat/tuple/unit/siunitx
   freshness.py       run states, dependency propagation, accept ledger
   changes.py         baseline, change classes, heuristics, history, on_change
-  provenance.py      CSV export
-  catalog.py         CATALOG.md + index.json
-  search.py          BM25 + synonyms
-  match.py           literal ↔ value matching (suggest, no-source)
-  check.py           issue model, severities, ordering, report, JSON envelope
-  cli.py             argparse subcommands
-  exec.py            python -m vouch.exec
-  hooks.py           git pre-commit install, `vouch hook claude`
-  mcp_server.py      optional
+  build.py           plan / emit / build; check.py: the gate; issues.py: issue model and order
+  provenance.py      CSV export;  catalog.py: CATALOG.md
+  assist.py          search (BM25), cite, compare (Welch t-test, stdlib only), todo
+  explore.py         vouch explore (local web page);  data/explore.html
+  runner.py          vouch run / vouch import
+  edithook.py        vouch hook claude / stop, and .vouch/cache/index.json
+  agents.py          vouch init --agents: SKILL.md, the rules block, .claude/settings.json
+  hooks.py           the git pre-commit hook
+  cli.py             argparse subcommands (argparse itself loaded only when parsing)
   tex/scan.py        file graph, comment masking, citations, macro awareness, sentences
-  tex/lint.py        bare-number lint
-  tex/emit.py        values file, tables, annotations
-  data/vouch.sty  data/SKILL.md  data/agents_block.md  schema/v1.json
+  tex/lint.py        bare-number lint and literal <-> value matching
+  tex/suggest.py     vouch suggest [--apply]
+  tex/annotate.py    managed % vouch: comments
+  tex/emit.py        values file, tables
+  data/vouch.sty     schema/v1.json
 tests/  examples/minimal/
 ```
 

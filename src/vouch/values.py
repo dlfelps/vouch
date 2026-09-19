@@ -15,7 +15,6 @@ import dataclasses
 import math
 import numbers
 import re
-import statistics
 from typing import Any, Iterable, Mapping
 
 KEY_MAX = 128
@@ -97,6 +96,7 @@ class Stat:
         xs = [float(coerce_scalar(x)) for x in samples]
         if not xs:
             raise ValueError("Stat.of() needs at least one sample")
+        import statistics
         std = statistics.stdev(xs) if len(xs) > 1 else 0.0
         return cls(mean=statistics.fmean(xs), std=std, n=len(xs), min=min(xs), max=max(xs))
 

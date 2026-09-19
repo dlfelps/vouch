@@ -2,20 +2,39 @@
 
 from __future__ import annotations
 
-import argparse
 import fnmatch
 import json
 import os
-import shutil
-import subprocess
 import sys
 from pathlib import Path
 
 from . import __version__
-from . import changes as ch
 from . import console as C
 from .config import Config, ConfigError, discover_root
-from .index import origin, source_runs
+
+
+class _Lazy:
+    """A module imported on first use: most commands (and the edit hook) never need it."""
+
+    def __init__(self, name: str):
+        self._name = name
+
+    def __getattr__(self, attr: str):
+        from importlib import import_module
+        return getattr(import_module(self._name, __package__), attr)
+
+
+ch = _Lazy(".changes")
+
+
+def origin(e):
+    from .index import origin as f
+    return f(e)
+
+
+def source_runs(e):
+    from .index import source_runs as f
+    return f(e)
 
 EXIT_OK, EXIT_FAIL, EXIT_UNVERIFIED = 0, 1, 2
 
@@ -103,7 +122,35 @@ def cmd_init(args) -> int:
             C.out(f"  installed pre-commit hook: {install(root)}")
         except HookError as exc:
             C.out(f"  ! pre-commit hook not installed: {exc}")
+    if args.agents is not None:
+        rc = _init_agents(root, args)
+        if rc != EXIT_OK:
+            return rc
     C.out("next: record values in your experiments, cite them as \\vouch{key}, run `vouch build`")
+    return EXIT_OK
+
+
+def _init_agents(root: Path, args) -> int:
+    from . import agents
+    parts = [p.strip() for p in (args.agents or ",".join(agents.PARTS)).split(",") if p.strip()]
+    bad = [p for p in parts if p not in agents.PARTS]
+    if bad:
+        return _fatal("init", ValueError(f"--agents takes {','.join(agents.PARTS)}, not {bad}"))
+    changes = agents.planned(root, parts, stop_gate=args.stop_gate)
+    if not changes:
+        C.out("  agents: already set up")
+        return EXIT_OK
+    C.out(agents.diff(root, changes).rstrip("\n"))
+    if not args.yes:
+        if not sys.stdin.isatty():
+            C.out("  agents: nothing written; re-run with --yes to write the files above")
+            return EXIT_OK
+        if input("write these files? [y/N] ").strip().lower() not in ("y", "yes"):
+            C.out("  agents: nothing written")
+            return EXIT_OK
+    agents.write(changes)
+    for p in changes:
+        C.out(f"  wrote {p.relative_to(root).as_posix()}")
     return EXIT_OK
 
 
@@ -437,7 +484,7 @@ def _trace_key(ctx, key: str, args, indent: str = "") -> int:
         else:
             out.append(f"  recorded  {e.site or '-'}   in run {e.run}")
         if e.extra.get("call"):
-            from .track import call_text, per_call_text, timing_text
+            from .tracked import call_text, per_call_text, timing_text
             call = e.extra["call"]
             out.append(f"  by        {call_text(call)}"
                        + (f"   (listed in vouch.toml {call['via']})" if call.get("via") else ""))
@@ -507,6 +554,232 @@ def cmd_explore(args) -> int:
               f"a snapshot -- `vouch explore` serves a live view")
         return EXIT_OK
     serve(cfg, port=args.port, open_browser=args.open, out=C.out)
+    return EXIT_OK
+
+
+def _ctx(args, cmd: str):
+    from .build import BuildError, plan
+    try:
+        cfg = _config(args)
+        return cfg, plan(cfg, need_paper=False, check_env=False)
+    except (BuildError, ConfigError, FileNotFoundError) as exc:
+        raise _Fatal(cmd, exc) from None
+
+
+class _Fatal(Exception):
+    def __init__(self, cmd: str, exc: Exception):
+        super().__init__(str(exc))
+        self.cmd, self.exc = cmd, exc
+
+
+def cmd_search(args) -> int:
+    from .assist import search
+    try:
+        cfg, ctx = _ctx(args, "search")
+    except _Fatal as f:
+        return _fatal(f.cmd, f.exc)
+    hits = search(ctx, " ".join(args.words), limit=args.limit)
+    if args.json:
+        print(_envelope("search", True, query=" ".join(args.words), results=hits))
+        return EXIT_OK
+    if not hits:
+        C.out("no matching keys (vouch ls lists them all; vouch explore browses them)")
+        return EXIT_FAIL
+    w = min(max(len(h["key"]) for h in hits), 44)
+    v = min(max(len(h["value"]) for h in hits), 18)
+    for h in hits:
+        tail = ", ".join(x for x in (h["origin"], h["state"] if h["state"] not in ("fresh", "cosmetic")
+                                     else "") if x)
+        C.out(f"{h['key']:<{w}}  {h['value']:<{v}}  {h['desc'][:60]}" + (f"   ({tail})" if tail else ""))
+    return EXIT_OK
+
+
+def cmd_cite(args) -> int:
+    from .assist import cite
+    try:
+        cfg, ctx = _ctx(args, "cite")
+    except _Fatal as f:
+        return _fatal(f.cmd, f.exc)
+    info = cite(ctx, args.key)
+    if args.fmt and "error" not in info and info.get("kind") not in ("claim", "table", "pending"):
+        from .assist import shown, snippet
+        from .render import Options
+        e = ctx.idx.get(args.key)
+        info["snippets"] = [{"latex": snippet(e, args.fmt),
+                             "renders": shown(e, Options.from_config(cfg), args.fmt), "fmt": args.fmt}]
+    if args.json:
+        print(_envelope("cite", "error" not in info, **info))
+        return EXIT_OK if "error" not in info else EXIT_FAIL
+    if "error" in info:
+        C.err(f"vouch cite: {info['error']}" + (f" (did you mean {', '.join(info['suggestions'])}?)"
+                                                if info.get("suggestions") else ""))
+        return EXIT_FAIL
+    w = max(len(x["latex"].split("\n")[0]) for x in info["snippets"])
+    for x in info["snippets"]:
+        first = x["latex"].split("\n")[0]
+        if "\n" in x["latex"]:
+            C.out(x["latex"])
+            C.out(f"{'':<{w}}  ({x['renders']})")
+            continue
+        C.out(f"{first:<{w}}  →  {x['renders']}" + (f"    (fmt {x['fmt']})" if x.get("fmt") else ""))
+    about = [info.get("desc") or ""]
+    if info.get("better"):
+        about.append(f"{info['better']} is better")
+    if info.get("because"):
+        about.append(f"because {info['because']}" + (f" (margin {info['margin']:.1%})"
+                                                       if isinstance(info.get("margin"), (int, float)) else ""))
+    if info.get("kind") == "claim":
+        about.append("HOLDS" if info.get("holds") else "FALSE -- rewrite the claim")
+    for f in ("state", "origin"):
+        if info.get(f):
+            about.append(("run " if f == "origin" and info[f] != "derived" else "") + info[f])
+    if info.get("alias_of"):
+        about.append(f"alias of {info['alias_of']}")
+    if info.get("producer"):
+        about.append(f"pending; produce it with: {info['producer']}")
+    C.out(" · ".join(a for a in about if a))
+    if info.get("subfields"):
+        C.out("subfields: " + " · ".join(f".{s['key'].rsplit('.', 1)[1]} {s['renders']}"
+                                         for s in info["subfields"]))
+    return EXIT_OK
+
+
+def cmd_compare(args) -> int:
+    from .assist import compare, write_definitions
+    try:
+        cfg, ctx = _ctx(args, "compare")
+    except _Fatal as f:
+        return _fatal(f.cmd, f.exc)
+    r = compare(ctx, args.a, args.b)
+    if "error" in r:
+        if args.json:
+            print(_envelope("compare", False, **r))
+        else:
+            C.err(f"vouch compare: {r['error']}" + (f" (did you mean {', '.join(r['suggestions'])}?)"
+                                                     if r.get("suggestions") else ""))
+        return EXIT_FAIL
+    written = clash = None
+    if args.write:
+        path, clash = write_definitions(cfg, r["code"], [r["derive_key"], r["claim_key"]])
+        written = None if clash else cfg.rel(path)
+    if args.json:
+        print(_envelope("compare", True, **r, written=written, already_defined=clash or []))
+        return EXIT_OK
+    head = f"{r['a']} {r['shown_a']} vs {r['b']} {r['shown_b']}"
+    if r.get("winner"):
+        head += f"   ({r['better']} is better → {r['winner']} is better)"
+    C.out(head)
+    parts = [f"difference {r['difference']:+.4g}"]
+    if "pts" in r["derive_key"]:
+        parts[0] += f" ({100 * r['difference']:.3g} points)"
+    if r.get("ratio") is not None:
+        parts.append(f"ratio {r['ratio']:.4g}")
+    if r.get("relative") is not None:
+        parts.append(f"relative {r['relative']:+.1%}")
+    C.out("  " + " · ".join(parts))
+    if "pooled_std_apart" in r:
+        line = f"  Stat: {r['pooled_std_apart']:.3g} pooled std apart"
+        wl = r.get("welch")
+        if wl:
+            p = wl["p"]
+            line += f" · Welch t-test p {'< 1e-6' if p < 1e-6 else '= ' + format(p, '.3g')} " \
+                    f"(n = {wl['n'][0]}, {wl['n'][1]})"
+            if p >= 0.05:
+                line += " -- not significant at 0.05: don't write \"significantly\""
+        C.out(line)
+    if written:
+        C.out(f"wrote {r['derive_key']} and {r['claim_key']} to {written}; run `vouch build`")
+    elif clash:
+        C.out(f"not written: {', '.join(clash)} already defined in "
+              f"{cfg.get('python', 'values_modules', ['vouch_values.py'])[0]}")
+    else:
+        C.out("paste into vouch_values.py (or run again with --write):")
+        for ln in r["code"].rstrip("\n").split("\n"):
+            C.out("  " + ln)
+    C.out("then cite:")
+    C.out("  " + r["cite"])
+    return EXIT_OK
+
+
+def cmd_suggest(args) -> int:
+    from .tex.suggest import apply, suggestions
+    try:
+        cfg, ctx = _ctx(args, "suggest")
+    except _Fatal as f:
+        return _fatal(f.cmd, f.exc)
+    if not ctx.plans:
+        return _fatal("suggest", ValueError("no [[paper]] in vouch.toml"))
+    only = cfg.rel(Path(args.file).resolve()) if args.file else None
+    all_sugs = []
+    for pl in ctx.plans:
+        all_sugs += [(pl, s) for s in suggestions(pl.doc, ctx.idx, cfg, only)]
+    if args.json:
+        applied = {}
+        if args.apply:
+            for pl in ctx.plans:
+                applied.update({cfg.rel(p): n for p, n in
+                                apply(pl.doc, [s for q, s in all_sugs if q is pl], cfg.root).items()})
+        print(_envelope("suggest", True, literals=[s.to_json() for _, s in all_sugs], applied=applied))
+        return EXIT_OK
+    for _, s in all_sugs:
+        loc = f"{s.lit.file}:{s.lit.line}"
+        lit = s.lit.text
+        if s.status == "replace":
+            C.out(f"{loc:<22} {lit:<12} → {s.snippet}   exact")
+        elif s.status == "ambiguous":
+            C.out(f"{loc:<22} {lit:<12} → ambiguous: {', '.join(s.keys[:4])} -- choose by hand")
+        else:
+            C.out(f"{loc:<22} {lit:<12} → NO SOURCE -- no recorded value prints as {lit}"
+                  + (f" (nearest: {s.near})" if s.near else ""))
+    counts = {k: sum(1 for _, s in all_sugs if s.status == k) for k in ("replace", "ambiguous", "no-source")}
+    C.out(f"{len(all_sugs)} literal(s): {counts['replace']} replaceable"
+          + (" (--apply)" if not args.apply else "") + f", {counts['no-source']} no-source, "
+          f"{counts['ambiguous']} ambiguous")
+    if args.apply:
+        total = 0
+        for pl in ctx.plans:
+            for p, n in apply(pl.doc, [s for q, s in all_sugs if q is pl], cfg.root).items():
+                C.out(f"  rewrote {n} literal(s) in {cfg.rel(p)}")
+                total += n
+        if total:
+            C.out("next: vouch build")
+    return EXIT_OK
+
+
+def cmd_todo(args) -> int:
+    from .assist import todo
+    try:
+        cfg, ctx = _ctx(args, "todo")
+    except _Fatal as f:
+        return _fatal(f.cmd, f.exc)
+    items = todo(ctx)
+    if args.json:
+        print(_envelope("todo", not items, owed=items))
+        return EXIT_OK
+    if not items:
+        C.out("nothing pending: every vouch.expect(...) has been recorded")
+        return EXIT_OK
+    C.out(f"{len(items)} value(s) the paper is still owed:")
+    for it in items:
+        C.out(f"  {it['key']}   {it['desc']}")
+        C.out(f"      run: {it['producer'] or '(no producer given)'}")
+        if it["cited"]:
+            C.out(f"      cited at {', '.join(it['cited'][:6])}")
+        if it["blocks"]:
+            C.out(f"      also blocks {', '.join(it['blocks'])}")
+    return EXIT_OK
+
+
+def cmd_catalog(args) -> int:
+    from .build import BuildError, plan
+    from .catalog import write_catalog
+    try:
+        cfg = _config(args)
+        ctx = plan(cfg, need_paper=False, check_env=False)
+        written = write_catalog(ctx)
+    except (BuildError, ConfigError, FileNotFoundError, OSError) as exc:
+        return _fatal("catalog", exc)
+    C.out(f"vouch catalog: {'wrote ' + ', '.join(cfg.rel(p) for p in written) if written else 'unchanged'}")
     return EXIT_OK
 
 
@@ -694,6 +967,8 @@ def cmd_ack(args) -> int:
 
 
 def _open_editor(root: Path, file: str, line: int) -> None:
+    import shutil
+    import subprocess
     path = str(root / file)
     code = shutil.which("code")
     editor = os.environ.get("VISUAL") or os.environ.get("EDITOR")
@@ -744,6 +1019,14 @@ def cmd_review(args) -> int:
 
 
 def cmd_hook(args) -> int:
+    if args.action in ("claude", "stop"):
+        from .edithook import run_edit_hook, run_stop_hook
+        data = sys.stdin.read() if not sys.stdin.isatty() else ""
+        code, text = (run_edit_hook(data) if args.action == "claude"
+                      else run_stop_hook(data, Path(args.root) if args.root else None))
+        if text:
+            sys.stderr.write(text)
+        return code
     from .hooks import HookError, install
     try:
         path = install(_root(args), strict=args.strict, force=args.force)
@@ -757,6 +1040,7 @@ def cmd_hook(args) -> int:
 # ---------------------------------------------------------------------------
 
 def make_parser() -> argparse.ArgumentParser:
+    import argparse
     p = argparse.ArgumentParser(prog="vouch", description="Every number in your paper, vouched "
                                 "for by the code that produced it.")
     p.add_argument("--version", action="version", version=f"vouch {__version__}")
@@ -771,6 +1055,11 @@ def make_parser() -> argparse.ArgumentParser:
     sp = add("init", cmd_init, "set up vouch.toml, the store and vouch.sty")
     sp.add_argument("--paper", help="the paper's main .tex (default: detected)")
     sp.add_argument("--hook", action="store_true", help="also install the git pre-commit hook")
+    sp.add_argument("--agents", nargs="?", const="", metavar="PARTS",
+                    help="set up Claude Code: skill,rules,hook (default: all three)")
+    sp.add_argument("--stop-gate", action="store_true",
+                    help="with --agents: also block finishing until `vouch check --strict` passes")
+    sp.add_argument("--yes", action="store_true", help="write without asking")
 
     sp = add("build", cmd_build, "render values, tables and the provenance CSV for the paper")
     sp.add_argument("--json", action="store_true", help="machine-readable summary")
@@ -802,6 +1091,32 @@ def make_parser() -> argparse.ArgumentParser:
     sp = add("trace", cmd_trace, "where a value came from (a key, a tex file:line, or a script)")
     sp.add_argument("target")
     sp.add_argument("--code", action="store_true", help="list every code unit")
+
+    add("catalog", cmd_catalog, "rewrite .vouch/CATALOG.md (every build does too)")
+
+    sp = add("search", cmd_search, "find keys by words (key segments, descriptions, arguments)")
+    sp.add_argument("words", nargs="+")
+    sp.add_argument("--limit", type=int, default=10)
+    sp.add_argument("--json", action="store_true")
+
+    sp = add("cite", cmd_cite, "the exact LaTeX to cite a key, and what it renders as")
+    sp.add_argument("key")
+    sp.add_argument("--fmt", help="a format to render it with")
+    sp.add_argument("--json", action="store_true")
+
+    sp = add("compare", cmd_compare, "the arithmetic between two values, and the code to cite it")
+    sp.add_argument("a")
+    sp.add_argument("b")
+    sp.add_argument("--write", action="store_true", help="append the derive/claim to vouch_values.py")
+    sp.add_argument("--json", action="store_true")
+
+    sp = add("suggest", cmd_suggest, "replace numbers typed into the paper with citations")
+    sp.add_argument("file", nargs="?", help="one tex file (default: every paper)")
+    sp.add_argument("--apply", action="store_true", help="rewrite unique exact matches")
+    sp.add_argument("--json", action="store_true")
+
+    sp = add("todo", cmd_todo, "values the paper cites that no run has recorded yet (vouch.expect)")
+    sp.add_argument("--json", action="store_true")
 
     sp = add("sync", cmd_sync, "write each cited value into a trailing % vouch: comment")
     sp.add_argument("--strip", action="store_true", help="remove every annotation")
@@ -842,8 +1157,8 @@ def make_parser() -> argparse.ArgumentParser:
 
     add("review", cmd_review, "step through pending changes interactively")
 
-    sp = add("hook", cmd_hook, "install the git pre-commit hook")
-    sp.add_argument("action", choices=["install"])
+    sp = add("hook", cmd_hook, "git pre-commit hook (install), Claude Code hooks (claude, stop)")
+    sp.add_argument("action", choices=["install", "claude", "stop"])
     sp.add_argument("--strict", action="store_true", help="the hook runs check --strict")
     sp.add_argument("--force", action="store_true", help="replace an existing pre-commit hook")
 
@@ -866,13 +1181,21 @@ def _utf8_when_piped() -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    from . import figures
-    from .tracing import tracker
-    tracker.stop()                     # the CLI runs no experiment; nothing to track
-    figures.disable()                  # nor any figure to record (vouch_values.py may plot)
+    # the CLI runs no experiment: nothing to track, no figure to record (vouch_values.py
+    # may plot). Started only if vouch was imported by something else first (tests).
+    if "vouch.tracing" in sys.modules:
+        sys.modules["vouch.tracing"].tracker.stop()
+    if "vouch.figures" in sys.modules:
+        sys.modules["vouch.figures"].disable()
     _utf8_when_piped()
-    parser = make_parser()
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv == ["hook", "claude"]:        # after every agent edit: skip argparse entirely
+        from .edithook import run_edit_hook
+        code, text = run_edit_hook(sys.stdin.read() if not sys.stdin.isatty() else "")
+        if text:
+            sys.stderr.write(text)
+        return code
+    parser = make_parser()
     cmd: list[str] = []
     if argv[:1] == ["run"] and "--" in argv:         # vouch run ID [options] -- CMD ...
         cut = argv.index("--")

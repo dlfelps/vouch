@@ -12,7 +12,7 @@ from vouch import cli
 from vouch.config import Config
 from vouch.freshness import assess
 from vouch.store import load_runs
-from vouch.track import (TrackError, _flat_result, call_key, call_text, per_call_text, segment,
+from vouch.tracked import (TrackError, _flat_result, call_key, call_text, per_call_text, segment,
                          track)
 from vouch.values import decode
 
@@ -397,7 +397,7 @@ def test_elements_of_a_tuple_value_are_citable(project, capsys):
 # ---------------------------------------------------------------------------
 
 def test_duration_and_timing_text():
-    from vouch.track import duration_text, timing_text
+    from vouch.tracked import duration_text, timing_text
     assert [duration_text(s) for s in (0.00034, 0.34, 12.14, 204, 7560)] == [
         "0.34 ms", "340 ms", "12.1 s", "3.4 min", "2.1 h"]
     assert timing_text({"seconds": [12.1]}) == "took 12.1 s"

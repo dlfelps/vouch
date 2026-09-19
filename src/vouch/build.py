@@ -152,14 +152,14 @@ def _with_state(tip: str, runs: list[str], change: ch.Change | None) -> str:
 
 
 def _call_line(e: Entry) -> str:
-    from .track import call_text
+    from .tracked import call_text
     call = e.extra.get("call")
     return f"recorded by {call_text(call)}" if call else ""
 
 
 def _call_lines(e: Entry) -> list[str]:
     """What @vouch.track / [[track]] knows about the call, one plain line per fact."""
-    from .track import per_call_text, sites_text, timing_text
+    from .tracked import per_call_text, sites_text, timing_text
     call = e.extra.get("call")
     if not call:
         return []
@@ -271,7 +271,7 @@ def _derived_latex(e: Entry, lines: list[str], change: ch.Change | None) -> str:
 def _call_latex(e: Entry, call: dict) -> list[str]:
     """The appendix lines for a tracked value: the call, each call's result, the code."""
     from .render import tex_escape as esc
-    from .track import per_call_text, sites_text, timing_text
+    from .tracked import per_call_text, sites_text, timing_text
     lines = [esc(_call_line(e))]
     if call.get("seconds"):
         lines.append(esc(timing_text(call, ascii=True)))
@@ -398,6 +398,19 @@ def prepare_paper(cfg: Config, idx: Index, paper: dict) -> PaperPlan:
     for c in doc.citations:
         if c.kind in ("value", "raw", "claim", "table"):
             e = idx.get(c.key)
+            if e is None and idx.pending_for(c.key) is not None:
+                p = idx.pending_for(c.key)
+                producer = p.get("producer")
+                what = (f"it is computed from {', '.join(p['waits'])}, which no run has recorded "
+                        f"yet" if p.get("waits") else
+                        f"declared with vouch.expect" + (f" ({p['desc']})" if p.get("desc") else ""))
+                issues.append(Issue("pending", "warning",
+                                    f"{c.key} is pending: {what}"
+                                    + (f"; produce it with: {producer}" if producer else ""),
+                                    c.file, c.line, subject=c.key,
+                                    fix=producer or "run the experiment that records it",
+                                    fix_kind="command" if producer else "human"))
+                continue
             if e is None and idx.awaiting_build(c.key):
                 continue                 # reported once, as out-of-sync: run vouch build
             if e is None:
@@ -485,6 +498,14 @@ def emit_paper(ctx: Context, pl: PaperPlan) -> None:
                   + (f" ({t.site})" if t.site else "") + ". Do not edit.")
         files[path] = emit.table_body(header, _table_rows(t, idx, pl.rendered, pl.issues), t.midrules)
 
+    pending = {k: d.get("producer") or "" for k, d in idx.pending.items()}
+    for c in pl.doc.citations:                  # \vouch{k.mean} of a pending k is pending too
+        p = idx.pending_for(c.key)
+        if p is not None and idx.get(c.key) is None:
+            pending.setdefault(c.key, p.get("producer") or "")
+    for key in sorted(pending):
+        lines.append(emit.pending_line(key, pending[key]))
+
     for run in sorted(ctx.states):
         lines.append(emit.state_line(run, state_text(ctx.states[run])))
 
@@ -519,7 +540,7 @@ def plan(cfg: Config, *, check_env: bool = True, only: list[dict] | None = None,
     """Everything a build would write, and what is wrong. ``evaluate`` re-runs the
     definitions in vouch_values.py when they are out of date (``vouch build``);
     otherwise their last results are used, and staleness is reported."""
-    from .derive import prepare
+    from .derived import prepare
     idx = Index.load(cfg)
     outcome = prepare(cfg, idx, build=evaluate)
     project = [Issue(p.check, "error" if p.check in ("store-edited", "key-conflict") else "warning",
@@ -528,6 +549,10 @@ def plan(cfg: Config, *, check_env: bool = True, only: list[dict] | None = None,
                      if p.check == "store-edited" else None)
                for p in idx.problems + idx.conflicts()]
     project += outcome.issues
+    for key, d in sorted(idx.met.items()):
+        project.append(Issue("expectation-met", "info",
+                             f"{key} is recorded now; its vouch.expect(...) at {d.get('site')} "
+                             f"can go", subject=key))
     states = assess(cfg, idx.runs, check_env=check_env)
     if only is not None:
         chosen = only
@@ -592,5 +617,9 @@ def build(cfg: Config, *, notify: bool = True) -> BuildResult:
     if cfg.get("latex", "annotate", False):
         from .tex.annotate import annotate
         written += annotate(ctx)
+    from .catalog import write_catalog
+    written += write_catalog(ctx)
+    from .edithook import write_index
+    write_index(ctx)                      # what `vouch hook claude` reads after every edit
     fresh, err = ch.notify(cfg, ctx.changes) if notify else ([], None)
     return BuildResult(ctx, written, unchanged, acked, fresh, err)

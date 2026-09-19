@@ -593,7 +593,7 @@ class Run:
                 return self.path
             self.closed = True
         if self._tracked:
-            from .track import flush
+            from .tracked import flush
             flush(self)
         _tracker.report(_warn)
         record = self._build_record()
@@ -986,7 +986,7 @@ def _implicit_run() -> Run:
 
 def active_run() -> Run:
     """The run module-level calls act on: the explicit one if inside ``with``, else implicit."""
-    from .derive import evaluating
+    from .derived import evaluating
     if evaluating():
         raise RuntimeError("vouch_values.py is evaluated by `vouch build` and must not record "
                            "values; define them with @vouch.derive, @vouch.claim or @vouch.table")
@@ -1021,7 +1021,7 @@ def claim(key: str, holds: Any = _MISSING, *, desc: str | None = None,
     the claim from recorded values and returns a bool or a Verdict (``vouch.gt``, ...).
     """
     if holds is _MISSING:
-        from .derive import claim_definition
+        from .derived import claim_definition
         return claim_definition(key, desc=desc, inputs=inputs)
     return active_run().claim(key, holds, desc=desc, values=values)
 
@@ -1041,7 +1041,7 @@ def table(key: str, data: Any = _MISSING, **kwargs: Any) -> Any:
     the table from recorded values (``v[key]``) and returns its rows.
     """
     if data is _MISSING:
-        from .derive import table_definition
+        from .derived import table_definition
         return table_definition(key, **kwargs)
     active_run().table(key, data, **kwargs)
 
@@ -1052,7 +1052,7 @@ def params(obj: Any) -> None:
 
 def _figure_saved(path: str, site: str) -> None:
     """A figure written by matplotlib's ``savefig``: an artifact of the active run."""
-    from .derive import evaluating
+    from .derived import evaluating
     if evaluating():
         return
     active_run()._add_artifact(path, "figure", site)

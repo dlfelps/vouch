@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vouch.dev/schema/v1.json",
+  "title": "vouch/1 command output",
+  "description": "The envelope every `vouch ... --json` prints. Fields are stable within vouch/1: additions are allowed, removals need vouch/2.",
+  "type": "object",
+  "required": ["schema", "command", "ok"],
+  "properties": {
+    "schema": {"const": "vouch/1"},
+    "command": {"type": "string"},
+    "ok": {"type": "boolean"},
+    "summary": {"type": "object"},
+    "error": {"type": "string"},
+    "issues": {"type": "array", "items": {"$ref": "#/$defs/issue"}}
+  },
+  "$defs": {
+    "issue": {
+      "type": "object",
+      "required": ["check", "severity", "message", "subject", "where"],
+      "properties": {
+        "check": {"type": "string"},
+        "severity": {"enum": ["error", "warning", "info"]},
+        "message": {"type": "string"},
+        "subject": {"type": ["string", "null"]},
+        "where": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["file", "line"],
+            "properties": {"file": {"type": "string"}, "line": {"type": ["integer", "null"]}}
+          }
+        },
+        "fix": {
+          "type": "object",
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": {"enum": ["command", "edit", "build", "human"]},
+            "value": {"type": "string"}
+          }
+        },
+        "detail": {"type": "object"}
+      }
+    }
+  }
+}

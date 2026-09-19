@@ -132,7 +132,7 @@ def _worst(states: dict, runs: list[str]) -> str:
 
 class _Builder:
     def __init__(self, cfg: Config):
-        from .derive import prepare
+        from .derived import prepare
         from .freshness import assess
         self.cfg = cfg
         self.idx = Index.load(cfg)
@@ -167,7 +167,7 @@ class _Builder:
         return ch.readable(r.plain).replace("+/-", "±")
 
     def item(self, e: Entry) -> dict[str, Any]:
-        from .track import call_text, per_call_text, timing_text
+        from .tracked import call_text, per_call_text, timing_text
         it: dict[str, Any] = {"key": e.key, "kind": e.kind, "value": self.shown(e),
                               "desc": e.desc or "", "state": _worst(self.states, source_runs(e)),
                               "cited": self.cites.get(e.key, []), "run": e.run or ""}
@@ -220,12 +220,7 @@ class _Builder:
                 row.append({"key": ck, "value": self.shown(ce) if ce else "",
                             "cited": self.cites.get(ck, [])})
             rows.append(row)
-        spec = "".join("l" if (t.row_key == c or (t.rows and isinstance(t.rows[0][j], str)))
-                       else "r" for j, c in enumerate(t.columns))
-        head = " & ".join(tex_escape(c) for c in t.columns) + " \\\\"
-        tabular = ("\\begin{tabular}{" + spec + "}\n  \\toprule\n  " + head + "\n  \\midrule\n"
-                   "  \\vouchtable{" + key + "}\n  \\bottomrule\n\\end{tabular}")
-        return {"snippet": "\\vouchtable{" + key + "}", "tabular": tabular,
+        return {"snippet": "\\vouchtable{" + key + "}", "tabular": tabular_for(t),
                 "columns": list(t.columns), "rows": rows}
 
     def figure(self, path: str, fig) -> dict[str, Any]:
@@ -286,6 +281,22 @@ class _Builder:
                     g["lines"].append(e.site)
             g["items"].append(self.item(e))
 
+        for key, p in sorted(self.idx.pending.items()):     # cited before any run records them
+            fn = str(p.get("function") or "")
+            file, _, qual = fn.partition("::")
+            g = (group(file or self._values_module(), fn, qual, "derived", p.get("site") or "",
+                       _line(p.get("site")))
+                 if p.get("waits") else
+                 group(self._values_module(), "expected", "expected", "vouch.expect", "", 10 ** 7))
+            g["items"].append({"key": key, "kind": "pending", "value": "pending",
+                               "desc": p.get("desc") or f"computed from {', '.join(p['waits'])}"
+                               if p.get("waits") or p.get("desc") else "",
+                               "state": "pending", "cited": self.cites.get(key, []), "run": "",
+                               "snippet": ("\\vouchclaim{" + key + "}{...}" if p.get("kind") == "claim"
+                                           else "\\vouch{" + key + "}"),
+                               "producer": p.get("producer"),
+                               "site": p.get("site") or ""})
+
         for path in sorted(self.idx.figures):
             fig = self.idx.figures[path]
             rec = self.idx.runs.get(fig.run) or {}
@@ -335,9 +346,18 @@ class _Builder:
         return str(mods[0])
 
 
+def tabular_for(t) -> str:
+    """A booktabs ``tabular`` around ``\\vouchtable``, with the column headers filled in."""
+    spec = "".join("l" if (t.row_key == c or (t.rows and isinstance(t.rows[0][j], str)))
+                   else "r" for j, c in enumerate(t.columns))
+    head = " & ".join(tex_escape(c) for c in t.columns) + " \\\\"
+    return ("\\begin{tabular}{" + spec + "}\n  \\toprule\n  " + head + "\n  \\midrule\n"
+            "  \\vouchtable{" + t.key + "}\n  \\bottomrule\n\\end{tabular}")
+
+
 def _duration(raw: Any) -> str:
     """Seconds as the page shows a timing: ``12.2 ± 0.2 s``, ``340 ms``, ``1.1–1.3 min``."""
-    from .track import _UNITS, _unit_for, duration_text
+    from .tracked import _UNITS, _unit_for, duration_text
     from .values import Stat
     if isinstance(raw, Stat):
         unit = _unit_for(raw.mean)

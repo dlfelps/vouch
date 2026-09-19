@@ -100,6 +100,8 @@ class Index:
         self._sources: dict[str, list[str]] = {}
         self.derived_doc: dict | None = None     # derived.json, once loaded or evaluated
         self.unevaluated: set[str] = set()       # keys vouch_values.py defines, not yet built
+        self.pending: dict[str, dict] = {}       # key -> vouch.expect(...), not recorded yet
+        self.met: dict[str, dict] = {}           # expectations a run has since fulfilled
 
     # -- loading ----------------------------------------------------------------
 
@@ -217,7 +219,10 @@ class Index:
         self.derived_doc = doc
         defs = doc.get("definitions") or {}
         for key in sorted(defs):
-            if defs[key].get("kind") != "alias":
+            if defs[key].get("kind") == "expect":
+                self.add_expect(key, defs[key])
+        for key in sorted(defs):
+            if defs[key].get("kind") not in ("alias", "expect"):
                 self.add_definition(key, defs[key])
         self.add_aliases([(key, defs[key].get("target", ""), defs[key].get("site"))
                           for key in sorted(defs) if defs[key].get("kind") == "alias"])
@@ -233,7 +238,29 @@ class Index:
                 self.add_alias(*a)
                 todo.remove(a)
 
+    def add_expect(self, key: str, d: dict) -> None:
+        """A key the paper may cite before any run records it (``vouch.expect``)."""
+        if self.get(key) is not None or key in self.tables:
+            self.met[key] = d
+        else:
+            self.pending[key] = dict(d)
+
+    def pending_for(self, key: str) -> dict | None:
+        """The expectation ``key`` (or the key it is under) waits on, if any."""
+        for k, d in self.pending.items():
+            if key == k or key.startswith(k + "."):
+                return d
+        return None
+
     def add_definition(self, key: str, d: dict) -> None:
+        if d.get("pending"):                     # it reads a value that isn't recorded yet
+            waits = list(d["pending"])
+            producers = [self.pending[w].get("producer") for w in waits
+                         if w in self.pending and self.pending[w].get("producer")]
+            self.pending.setdefault(key, {"kind": d.get("kind"), "site": d.get("site"),
+                                          "function": d.get("function"), "waits": waits,
+                                          "producer": "; ".join(dict.fromkeys(producers)) or None})
+            return
         info = {"function": d.get("function"), "site": d.get("site"),
                 "deps": sorted(d.get("deps") or {}), "runs": list(d.get("runs") or []),
                 "inputs": dict(d.get("inputs") or {})}

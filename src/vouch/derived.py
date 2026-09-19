@@ -42,6 +42,7 @@ from .hashing import hash_path
 from .issues import Issue
 from .store import atomic_write_text, canonical_json, compute_record_hash, verify_record
 from .units import units_from_file
+from .valuesmod import static_keys, values_modules  # noqa: F401 - re-exported
 from .values import (BETTER, coerce_scalar, encode, encode_cell, is_number, is_valid_key,
                      join_key, sanitize_key)
 
@@ -132,7 +133,7 @@ def derive(key: str, *, fmt: Any = None, unit: Any = None, desc: Any = None, bet
     in ``inputs=``. It may return a number, a Stat, a tuple (``returns=`` names the
     elements) or a dict (one key per field, under ``key``).
     """
-    from .track import check_returns
+    from .tracked import check_returns
     names = check_returns(returns, f"@vouch.derive({key!r}, returns=...)")
 
     def deco(fn: Callable) -> Callable:
@@ -166,6 +167,21 @@ def table_definition(key: str, *, columns: list[str] | None = None, row_key: str
                                      "inputs": _inputs(inputs), "as_frame": as_frame})
         return fn
     return deco
+
+
+def expect(key: str, *, desc: str, producer: str | None = None, fmt: Any = None,
+           unit: Any = None, better: Any = None) -> None:
+    """Declare a number the paper needs before any run produces it (SPEC §5.5)::
+
+        vouch.expect("imagenet.convnext.acc", desc="ConvNeXt-T top-1 on ImageNet",
+                     producer="python train.py --dataset imagenet --model convnext")
+
+    The paper can cite it at once: the PDF shows ``[pending: key]``, ``vouch todo``
+    lists it with its producer, and it resolves by itself once a run records it.
+    """
+    rel, site = _caller_site()
+    _register("expect", key, None, {"desc": desc, "producer": producer, "fmt": fmt, "unit": unit,
+                                    "better": better}, where=(f"{rel}::<expect>", site))
 
 
 def alias(short: str, full: str) -> None:
@@ -233,6 +249,14 @@ class DeriveCycle(Exception):
     pass
 
 
+class Pending(Exception):
+    """A value a definition read is declared with ``vouch.expect`` but not recorded yet."""
+
+    def __init__(self, keys: list[str]):
+        super().__init__(", ".join(keys))
+        self.keys = keys
+
+
 class UnknownKey(KeyError):
     def __str__(self) -> str:
         return str(self.args[0]) if self.args else "unknown key"
@@ -293,7 +317,15 @@ class _Evaluator:
         self.cfg, self.idx, self.issues = cfg, idx, issues
         self.defs: dict[str, Definition] = {}
         self.aliases: dict[str, Definition] = {}
+        self.expects: dict[str, Definition] = {}
         for d in defs:
+            if d.kind == "expect":
+                if d.key in self.expects:
+                    self._issue("derive-error", f"{d.key} is expected twice ({self.expects[d.key].site} "
+                                f"and {d.site})", d)
+                else:
+                    self.expects[d.key] = d
+                continue
             table = self.aliases if d.kind == "alias" else self.defs
             if d.key in table or (d.kind == "alias" and d.key in self.defs) or \
                     (d.kind != "alias" and d.key in self.aliases):
@@ -305,6 +337,7 @@ class _Evaluator:
         self._short = sorted(self.aliases, key=len, reverse=True)
         self.results: dict[str, dict] = {}
         self.errors: dict[str, str] = {}
+        self.waiting: dict[str, list[str]] = {}          # definition -> the expected keys it needs
         self.stack: list[str] = []
         self.producers = {path: run for run, rec in sorted(idx.runs.items())
                           for path in (rec.get("artifacts") or {})}
@@ -339,6 +372,12 @@ class _Evaluator:
         return self.owner(target) is not None or self.idx.get(target) is not None \
             or target in self.idx.tables
 
+    def expected(self, key: str) -> str | None:
+        for k in self.expects:
+            if key == k or key.startswith(k + "."):
+                return k
+        return None
+
     def read(self, key: str, rec: dict) -> Any:
         target = self.resolve(key)
         d = self.owner(target)
@@ -348,6 +387,14 @@ class _Evaluator:
             self.evaluate(d)
             if d.key in self.errors:
                 raise _DepFailed(d.key)
+            if d.key in self.waiting:
+                rec["deps"][key] = None
+                raise Pending(self.waiting[d.key])
+        elif self.idx.get(target) is None and target not in self.idx.tables:
+            exp = self.expected(target)
+            if exp is not None:                  # declared, not recorded yet: wait for it
+                rec["deps"][key] = None
+                raise Pending([exp])
         if target in self.idx.tables and self.idx.get(target) is not None \
                 and self.idx.get(target).kind == "table":
             t = self.idx.tables[target]
@@ -383,6 +430,15 @@ class _Evaluator:
             args = [Values(self, rec)] + self._load_inputs(d, rec)
             result = d.fn(*args)
             doc = self._encode(d, result, rec)
+        except Pending as exc:
+            self.waiting[d.key] = sorted(set(exc.keys))
+            self.results[d.key] = {"kind": d.kind, "function": d.function, "site": d.site,
+                                   "pending": self.waiting[d.key],
+                                   "deps": dict(sorted(rec["deps"].items())),
+                                   "runs": sorted(rec["runs"])}
+            self.idx.add_definition(d.key, self.results[d.key])
+            self.stack.pop()
+            return
         except DeriveCycle as exc:
             cycle = exc.args[0]
             self._fail(d, "derive-cycle", "definitions depend on each other: " + " -> ".join(cycle))
@@ -448,7 +504,7 @@ class _Evaluator:
     def _encode_values(self, d: Definition, result: Any) -> dict:
         from . import fmt as _fmt
         from .api import Run
-        from .track import _flat_result
+        from .tracked import _flat_result
         flat = _flat_result(result, d.opts.get("returns") or ())
         if flat is None:
             raise TypeError(f"returned a {type(result).__name__}; return a number, a Stat, a "
@@ -550,16 +606,6 @@ def _runs_of_table(t) -> set[str]:
 # importing the values modules
 # ---------------------------------------------------------------------------
 
-def values_modules(cfg: Config) -> list[Path]:
-    """The configured values modules that exist."""
-    out = []
-    for p in cfg.get("python", "values_modules", []) or []:
-        path = Path(p) if os.path.isabs(p) else cfg.root / p
-        if path.is_file():
-            out.append(path.resolve())
-    return out
-
-
 def _import(cfg: Config, path: Path, issues: list[Issue]) -> None:
     rel = cfg.rel(path)
     name = path.stem
@@ -612,6 +658,9 @@ def evaluate(cfg: Config, idx, modules: list[Path]) -> tuple[dict, list[Issue]]:
         for p in modules:
             _import(cfg, p, reg.issues)
         ev = _Evaluator(cfg, idx, reg.defs, reg.issues)
+        for key, x in ev.expects.items():          # known before anything reads them
+            idx.add_expect(key, {"kind": "expect", "site": x.site, "desc": x.opts.get("desc"),
+                                 "producer": x.opts.get("producer")})
         ev.evaluate_all()
         code = _first_party_code(cfg, modules)
     finally:
@@ -624,35 +673,18 @@ def evaluate(cfg: Config, idx, modules: list[Path]) -> tuple[dict, list[Issue]]:
     defs: dict[str, dict] = dict(ev.results)
     for key, a in ev.aliases.items():
         defs[key] = {"kind": "alias", "target": a.opts["target"], "site": a.site}
+    for key, x in ev.expects.items():
+        entry = {"kind": "expect", "site": x.site, "desc": x.opts.get("desc")}
+        for f in ("producer", "fmt", "unit", "better"):
+            if x.opts.get(f) is not None:
+                entry[f] = x.opts[f]
+        defs[key] = entry
     idx.add_aliases([(key, a.opts["target"], a.site) for key, a in sorted(ev.aliases.items())])
     problems = sorted((_issue_json(i) for i in reg.issues),
                       key=lambda x: (x.get("file") or "", x.get("line") or 0, x["message"]))
     doc = {"schema": SCHEMA, "modules": [cfg.rel(p) for p in modules], "code": code,
            "definitions": dict(sorted(defs.items())), "problems": problems}
     return doc, _issues(doc)
-
-
-def static_keys(modules: list[Path]) -> set[str]:
-    """Keys the values modules define, read from their source without running it:
-    the literal first argument of ``derive``/``claim``/``table``/``alias`` calls."""
-    import ast
-    out: set[str] = set()
-    for p in modules:
-        try:
-            tree = ast.parse(p.read_text(encoding="utf-8"))
-        except (OSError, SyntaxError, ValueError):
-            continue
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call) or not node.args:
-                continue
-            f = node.func
-            name = f.attr if isinstance(f, ast.Attribute) else f.id if isinstance(f, ast.Name) else ""
-            first = node.args[0]
-            as_definition = name in ("derive", "alias") or (name in ("claim", "table")
-                                                            and len(node.args) == 1)
-            if as_definition and isinstance(first, ast.Constant) and isinstance(first.value, str):
-                out.add(first.value)
-    return out
 
 
 def _issue_json(i: Issue) -> dict:

@@ -224,7 +224,9 @@
 \DeclareRobustCommand\vouchclaim[2]{%
   \vouch@ifdef{vouch@cl@#1}%
     {\vouch@claimbody{#1}{#2}}%
-    {#2\vouch@claimbad{#1}{unknown}}}
+    {\vouch@ifdef{vouch@pend@#1}%
+      {#2\ \vouch@pendingmark{#1}}%
+      {#2\vouch@claimbad{#1}{unknown}}}}
 \long\def\vouch@claimbody#1#2{%
   \begingroup
   \def\vouch@claimkey{#1}%

@@ -16,7 +16,7 @@ pandas = ["pandas"]
 dev = ["pytest>=7", "pandas"]
 
 [project.scripts]
-vouch = "vouch.cli:main"
+vouch = "vouch._entry:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/vouch"]

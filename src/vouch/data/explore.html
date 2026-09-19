@@ -223,7 +223,7 @@ function visible(fn, it) {
 function stateTag(s) {
   if (!s) return null;
   const bad = ["stale", "upstream-stale", "tampered", "incomplete"].includes(s);
-  const warn = s === "accepted";
+  const warn = s === "accepted" || s === "pending";
   return h("span", { class: "state" + (bad ? " bad" : warn ? " warn" : "") },
            s === "cosmetic" ? "fresh" : s);
 }
@@ -233,7 +233,7 @@ function citedTag(list) {
     : h("span", { class: "pill" }, "not cited");
 }
 function snippetLabel(it) {
-  if (it.kind === "claim") return "\\vouchclaim";
+  if (it.kind === "claim" || (it.snippet || "").startsWith("\\vouchclaim")) return "\\vouchclaim";
   if (it.kind === "table") return "\\vouchtable";
   if (it.kind === "figure") return "\\includegraphics";
   return "\\vouch";
@@ -248,6 +248,7 @@ function detail(it) {
   if (it.kind === "claim" && it.explanation)
     add("because", it.explanation + (typeof it.margin === "number" ? `   (margin ${(100 * it.margin).toFixed(1)}%)` : ""));
   if (it.alias_of) add("alias of", h("a", { onclick: () => focusKey(it.alias_of) }, it.alias_of));
+  if (it.producer) add("produce with", h("code", null, it.producer));
   if (it.call) add("recorded by", h("code", null, it.call));
   if (it.time) add("time", it.time);
   if (it.each) add("each call", it.each);
@@ -258,7 +259,7 @@ function detail(it) {
     if (d.inputs.length) add("reads", d.inputs.join(", "));
     if (d.runs.length) add("runs", d.runs.join(", "));
   } else if (it.site) {
-    add(it.call ? "function at" : "recorded at", h("code", null, it.site),
+    add(it.call ? "function at" : it.kind === "pending" ? "declared at" : "recorded at", h("code", null, it.site),
         it.sites && it.sites.length ? "   called at " + it.sites.join(", ") : "");
   }
   if (it.run) add("run", it.run);

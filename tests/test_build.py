@@ -31,7 +31,7 @@ def test_build_writes_values_and_tables(example):
     res = build(Config.load(example))
     written = {p.relative_to(example).as_posix() for p in res.written}
     # the provenance CSV is on demand (vouch export) unless [[paper]] asks for it
-    assert written == {".vouch/derived.json", "paper/vouch-values.tex",
+    assert written == {".vouch/derived.json", ".vouch/CATALOG.md", "paper/vouch-values.tex",
                        "paper/vouch-tables/main.tex", "paper/vouch-tables/summary.tex"}
     v = values(example)
     # default rendering from [metrics] (.1pct), Stat as mean \pm std

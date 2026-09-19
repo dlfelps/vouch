@@ -169,8 +169,8 @@ _LITERAL = re.compile(
     rf"|(?P<thousands>(?<![\w.])\d{{1,3}}(?:\{{,\}}\d{{3}})+(?:\.\d+)?(?:\s*\\%)?)"
     rf"|(?P<pct>(?<![\w.])-?{_NUM}\s*\\%)"
     rf"|(?P<mult>(?<![\w.]){_NUM}\s*\\times(?!\s*\d)(?![A-Za-z]))"
-    rf"|(?P<dec>(?<![\w.])-?\d+\.\d+(?![\w.]))"
-    rf"|(?P<int>(?<![\w.^_{{}}\-]){r'\d{2,}'}(?![\w.}}]))")
+    rf"|(?P<dec>(?<![\w.])-?\d+\.\d+(?!\w|\.\d))"            # a sentence's full stop is fine;
+    rf"|(?P<int>(?<![\w.^_{{}}\-]){r'\d{2,}'}(?![\w}}]|\.\d))")  # 1.2.3 (a version) is not
 _YEAR = re.compile(r"(?:19|20)\d\d")
 
 
@@ -185,6 +185,7 @@ class Literal:
     percent: bool
     math: bool
     context: str
+    end: int = 0                       # offset just after the literal in ``file``
 
 
 def parse_numbers(text: str) -> list[tuple[float, int]]:
@@ -225,7 +226,7 @@ def find_literals(doc: Document, *, allow_years: bool = True) -> list[Literal]:
             lo, hi = max(0, m.start() - 60), min(len(src), m.end() + 60)
             out.append(Literal(rel, line_of(src, m.start()), m.start(), text.strip(), kind,
                                parse_numbers(text), "\\%" in text, in_math,
-                               " ".join(src[lo:hi].split())))
+                               " ".join(src[lo:hi].split()), m.end()))
     return out
 
 

@@ -124,3 +124,8 @@ def test_strict_makes_lint_fail_the_check(proj):
     build(Config.load(proj.root))
     assert run_check(Config.load(proj.root), check_env=False).ok
     assert not run_check(Config.load(proj.root), strict=True, check_env=False).ok
+
+
+def test_numbers_at_the_end_of_a_sentence(project):
+    assert literals(project, "The loss is 0.123. It ran for 38. Python 3.13.5 is a version.") \
+        == ["0.123", "38"]
