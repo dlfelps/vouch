@@ -39,7 +39,7 @@ vouch is designed for two kinds of user: a researcher, and the **LLM coding agen
 ## 0. Five-minute tour
 
 ```console
-$ pip install vouch
+$ pip install vouch-paper
 $ vouch init                      # finds paper/main.tex, writes vouch.toml, copies vouch.sty
 ```
 
@@ -1674,7 +1674,7 @@ imported 24 values into run imagenet_eval (prefix imagenet) · granularity: decl
   - `vouch hook install` writes `.git/hooks/pre-commit`, honoring `core.hooksPath`, with the same venv detection as asqc's `.githooks/pre-commit`. It runs `vouch check --quiet`, plus `--strict` if `[hook] strict`.
   - The vouch repo also ships a `.pre-commit-hooks.yaml` (`id: vouch-check`) for the pre-commit framework.
   - Following asqc's lesson, the hook must stay fast enough that nobody reaches for `--no-verify`.
-- **CI.** `pip install vouch && vouch check --strict`. The README includes a GitHub Actions example.
+- **CI.** `pip install vouch-paper && vouch check --strict`. The README includes a GitHub Actions example.
 - **Overleaf.**
   - Everything LaTeX needs lives in the paper directory: `vouch.sty`, the values file and the tables. These sync through Overleaf's git bridge.
   - Co-authors editing on Overleaf cite existing keys (from the committed catalog); unknown keys show `??key`.

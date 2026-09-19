@@ -1,14 +1,16 @@
 [build-system]
-requires = ["hatchling>=1.18"]
+requires = ["hatchling>=1.18", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
-name = "vouch"
-version = "0.1.0.dev0"
+name = "vouch-paper"
+dynamic = ["version"]
 description = "Every number in your paper, vouched for by the code that produced it."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Daniel Felps" }]
+license = { file = "LICENSE" }
+classifiers = ["License :: OSI Approved :: MIT License"]
 # The base install is everything: recording, the LaTeX side, check, explore, the Claude
 # Code hooks and the MCP server (`vouch mcp` speaks the protocol with the standard library).
 dependencies = ["tomli>=1.1; python_version < '3.11'"]
@@ -16,15 +18,24 @@ dependencies = ["tomli>=1.1; python_version < '3.11'"]
 [project.optional-dependencies]
 # DataFrames: record_all/table on pandas objects, vouch_values.py inputs with as_frame=True.
 pandas = ["pandas"]
-# `vouch mcp` needs nothing extra. The extra exists so `pip install "vouch[mcp]"` installs
-# cleanly, and gives any future transport that does need a package a place to declare it.
+# `vouch mcp` needs nothing extra. The extra exists so `pip install "vouch-paper[mcp]"`
+# installs cleanly, and gives any future transport that does need a package a place to declare it.
 mcp = []
 # The test suite; `mcp` is the official client, used only to test `vouch mcp` against it.
 test = ["pytest>=7", "pandas", "mcp>=2", "matplotlib"]   # matplotlib: the tutorial
-dev = ["vouch[test]"]
+dev = ["vouch-paper[test]"]
 
 [project.scripts]
 vouch = "vouch._entry:main"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.version.raw-options]
+fallback_version = "0.0.0"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/vouch/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/vouch"]
