@@ -30,7 +30,10 @@ it uses.
 import os as _os
 import sys as _sys
 
-__version__ = "0.1.0.dev0"
+try:
+    from ._version import __version__
+except ImportError:
+    __version__ = "0+unknown"
 
 _PUBLIC = {
     "Run": "api", "active_run": "api", "artifact": "api", "claim": "api", "input": "api",
