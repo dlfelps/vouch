@@ -399,3 +399,139 @@ def todo(ctx) -> list[dict]:
                     "blocks": blocks, "blocked_cited": {k: cites.get(k, []) for k in blocks
                                                         if cites.get(k)}})
     return out
+
+
+# ---------------------------------------------------------------------------
+# describe / trace: everything known about a key, as data (MCP, trace --json)
+# ---------------------------------------------------------------------------
+
+def feeds(ctx, key: str) -> list[dict]:
+    """Derived keys whose definitions read ``key`` (or something under it)."""
+    idx = ctx.idx
+    out = []
+    for dk, d in sorted(((idx.derived_doc or {}).get("definitions") or {}).items()):
+        for dep in d.get("deps") or {}:
+            e = idx.get(dep)
+            real = e.extra.get("alias_of", dep) if e is not None else dep
+            if real == key or real.startswith(key + ".") or dep == key:
+                out.append({"key": dk, "kind": d.get("kind", "value")})
+                break
+    return out
+
+
+def cited_at(ctx, key: str) -> list[str]:
+    e = ctx.idx.get(key)
+    out = []
+    for pl in ctx.plans:
+        for c in pl.doc.citations:
+            if c.key == key or (c.kind == "table" and e is not None and e.parent == c.key):
+                where = f"{c.file}:{c.line}"
+                if where not in out:
+                    out.append(where)
+    return out
+
+
+def describe(ctx, key: str) -> dict:
+    """Everything known about ``key``: value, provenance, freshness, citations."""
+    from .tracked import call_text, timing_text
+    from .values import encode
+    idx = ctx.idx
+    e = idx.get(key)
+    if e is None:
+        p = idx.pending_for(key)
+        if p is not None:
+            return {"key": key, "kind": "pending", "desc": p.get("desc") or "",
+                    "producer": p.get("producer"), "declared_at": p.get("site"),
+                    "waits_for": p.get("waits") or [], "cited_at": cited_at(ctx, key),
+                    "cite": "\\vouch{" + key + "}"}
+        return {"key": key, "error": f"{key} is not a key", "suggestions": idx.suggest(key)}
+    opts = Options.from_config(ctx.cfg)
+    out: dict[str, Any] = {"key": key, "kind": e.kind, "cite": snippet(e), "desc": e.desc or ""}
+    if e.kind != "table":
+        out["value"] = shown(e, opts)
+        try:
+            out["raw"] = dict(zip(("type", "value"), encode(e.raw)))
+        except TypeError:
+            out["raw"] = {"type": "repr", "value": repr(e.raw)}
+    for f in ("fmt", "unit", "better", "site", "parent"):
+        if getattr(e, f):
+            out[f] = getattr(e, f)
+    out["origin"] = origin_of(e)
+    out["state"] = state_of(ctx, e)
+    if e.kind == "claim":
+        out["holds"] = bool(e.raw)
+        for f in ("explanation", "margin"):
+            if e.extra.get(f) is not None:
+                out[f] = e.extra[f]
+    if e.kind == "table" and key in idx.tables:
+        t = idx.tables[key]
+        out["table"] = {"columns": t.columns, "rows": len(t.rows),
+                        "cells": f"{key}.<{t.row_key or 'row'}>.<column>"}
+    call = e.extra.get("call")
+    if call:
+        out["call"] = {**call, "text": call_text(call)}
+        if call.get("seconds"):
+            out["call"]["timing"] = timing_text(call)
+    if e.extra.get("derived"):
+        out["derived"] = e.extra["derived"]
+    for f in ("alias_of", "timing"):
+        if e.extra.get(f):
+            out[f] = e.extra[f]
+    runs = source_runs(e)
+    out["runs"] = []
+    for r in runs:
+        rec = idx.runs.get(r) or {}
+        st = ctx.states.get(r)
+        code = rec.get("code") or {}
+        info = {"run": r, "state": st.state if st else "", "summary": st.summary() if st else "",
+                "command": " ".join(rec.get("command") or []), "entry": rec.get("entry"),
+                "started": rec.get("started"), "duration_s": rec.get("duration_s"),
+                "git": rec.get("git"), "granularity": code.get("granularity"),
+                "code_units": len(code.get("units") or {}),
+                "inputs": sorted(rec.get("inputs") or {})}
+        if rec.get("imported"):
+            info["imported"] = rec["imported"]
+        if st and st.reasons:
+            info["reasons"] = [{"kind": x.kind, "subject": x.subject, "detail": x.detail}
+                               for x in st.reasons]
+        out["runs"].append(info)
+    subs = [c for c in idx.entries.values() if c.parent == key and c.kind in ("stat-field", "element")]
+    if subs:
+        out["subfields"] = {c.key: shown(c, opts) for c in sorted(subs, key=lambda c: c.key)}
+    out["feeds"] = feeds(ctx, e.extra.get("alias_of", key))
+    out["cited_at"] = cited_at(ctx, key)
+    change = ctx.pending.get(key)
+    if change is not None:
+        out["change"] = change.to_json()
+    return out
+
+
+def trace(ctx, target: str) -> dict:
+    """A key; a tex ``file:line`` (what it cites); or a script/file (the runs that used it)."""
+    idx = ctx.idx
+    if idx.get(target) is not None or idx.pending_for(target) is not None:
+        return {"target": target, "type": "key", **describe(ctx, target)}
+    if ":" in target and target.rsplit(":", 1)[1].isdigit() and target.split(":")[0].endswith(".tex"):
+        f, line = target.rsplit(":", 1)
+        hits = [c for pl in ctx.plans for c in pl.doc.citations
+                if c.line == int(line) and (c.file == f or c.file.endswith("/" + f))]
+        return {"target": target, "type": "line",
+                "citations": [{"kind": c.kind, "key": c.key, "fmt": c.fmt, "via": c.via,
+                               "file": c.file, "line": c.line,
+                               "value": describe(ctx, c.key) if (idx.get(c.key) or
+                                                                 idx.pending_for(c.key)) else None}
+                              for c in hits]}
+    cfg = ctx.cfg
+    cands = {cfg.rel(target), Path(target).as_posix().removeprefix("./")}
+    rel = next((c for c in cands if (cfg.root / c).exists()), cfg.rel(target))
+    runs = [r for r, rec in sorted(idx.runs.items())
+            if rec.get("entry") == rel or any(u.split("::")[0] == rel
+                                              for u in (rec.get("code") or {}).get("units", {}))]
+    if runs:
+        return {"target": target, "type": "file", "file": rel, "runs": [
+            {"run": r, "state": ctx.states[r].state if r in ctx.states else "",
+             "values": [{"key": k, "cited_at": cited_at(ctx, k)} for k in
+                        sorted(k for k, e in idx.entries.items() if e.run == r and e.kind == "value")]}
+            for r in runs]}
+    return {"target": target, "error": f"{target!r} is not a key, a tex file:line, or a file any "
+                                       f"run used", "suggestions": idx.suggest(target)}

@@ -10,6 +10,8 @@ Three optional parts, each shown as a diff before anything is written:
 * **hook** -- a PostToolUse hook in ``.claude/settings.json`` running ``vouch hook
   claude`` after every edit, so a typed number or a mistyped key is caught in the
   same turn. ``--stop-gate`` adds a Stop hook running ``vouch check --strict``.
+* **mcp** (only when asked for) -- ``.mcp.json`` registering ``vouch mcp``, the same
+  lookups as tools for any MCP client.
 """
 
 from __future__ import annotations
@@ -20,7 +22,8 @@ import shutil
 import sys
 from pathlib import Path
 
-PARTS = ("skill", "rules", "hook")
+PARTS = ("skill", "rules", "hook")          # the default set
+OPTIONAL = ("mcp",)                           # .mcp.json: the MCP server, for any MCP client
 MARK_START, MARK_END = "<!-- vouch -->", "<!-- /vouch -->"
 
 SKILL = r"""---
@@ -177,6 +180,21 @@ def planned(root: Path, parts: list[str], stop_gate: bool = False) -> dict[Path,
             if stop_gate:
                 settings = _with_hook(settings, "Stop", None, _hook_command("stop")[0])
             out[p] = (text, json.dumps(settings, indent=2) + "\n")
+    if "mcp" in parts:
+        p = root / ".mcp.json"
+        text = old(p)
+        try:
+            cfg = json.loads(text) if text.strip() else {}
+        except ValueError:
+            cfg = None
+        if cfg is not None:
+            cmd, portable = _hook_command("")
+            entry = ({"command": "vouch", "args": ["mcp"]} if portable else
+                     {"command": sys.executable, "args": ["-m", "vouch", "mcp"]})
+            servers = cfg.setdefault("mcpServers", {})
+            if servers.get("vouch") != entry:
+                servers["vouch"] = entry
+                out[p] = (text, json.dumps(cfg, indent=2) + "\n")
     return {p: (a, b) for p, (a, b) in out.items() if a != b}
 
 

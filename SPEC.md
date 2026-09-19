@@ -1574,9 +1574,9 @@ Every command's `--json` output uses the same envelope:
 - **Fix kinds:** `command` (run this); `edit` (file, line, old text → new text); `build` (run `vouch build`); `human` (needs the user: ack, accept, or a judgement).
 - **Compatibility:** field names are stable within `vouch/1`; additions are allowed, removals need `vouch/2`. The schema ships as `vouch/schema/v1.json`, and the tests validate the `--json` output of `check`, `search`, `cite`, `todo`, `suggest`, `compare`, `ls`, `status` and `changes` against it.
 
-### 13.7 MCP server (optional extra `vouch[mcp]`)
+### 13.7 MCP server: `vouch mcp`
 
-`vouch mcp` exposes the same functions to any MCP client, built on the official `mcp` Python SDK. The tools are read-only, except that `compare` may write the definition when asked:
+`vouch mcp` exposes the same functions to any MCP client over stdio. The tools are read-only, except that `compare` may write the definition when asked:
 
 | Tool | Returns |
 |---|---|
@@ -1589,7 +1589,22 @@ Every command's `--json` output uses the same envelope:
 | `check(strict=True)` | the §13.6 envelope |
 | `trace(target)` | `vouch trace` |
 
-Resource: `vouch://catalog` (the catalog). `ack` and `accept` are deliberately **not** exposed: acknowledgment and acceptance stay human actions.
+Resource: `vouch://catalog` (the catalog, rendered fresh). `ack` and `accept` are deliberately **not** exposed: acknowledgment and acceptance stay human actions.
+
+**Built on the protocol, not the SDK.** MCP over stdio is newline-delimited JSON-RPC 2.0, and the server implements it with the standard library in about 300 lines, so `vouch mcp` works out of the box with no extra to install. The official Python SDK would bring about two dozen packages (pydantic, starlette, uvicorn, …) into a tool whose core has none. Instead, the tests drive the server with the official client, in both its `auto` and `legacy` connection modes.
+
+**What it speaks:**
+- Handshake revisions 2025-06-18, 2025-03-26 and 2024-11-05. `initialize` echoes a version it supports and otherwise answers with its newest.
+- Methods: `initialize`, `ping`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, and notifications. Batches are accepted.
+- Newer clients (SDK 2.x, revision 2026-07-28) first probe `server/discover`. That is "method not found" here, so they fall back to the handshake, which is the SDK's documented behaviour for such servers.
+
+**Behaviour:**
+- **Stateless:** every call reads the project afresh (`plan` without the environment check), so answers are never out of date.
+- **Tool results:** a failure the model should see (an unknown key, a missing argument, no `vouch.toml`) is a tool result with `isError: true` and a message, not a protocol error. Successful results carry both the JSON text and `structuredContent`.
+- **Logs:** they go to stderr only.
+- **`vouch trace --json`:** returns the same structure as `get_value` and `trace`.
+
+**Registering it:** `vouch init --agents mcp` writes `.mcp.json` (`{"mcpServers": {"vouch": {"command": "vouch", "args": ["mcp"]}}}`), for Claude Code or any other client. It is not part of the default `--agents` set, because the skill and hook already cover Claude Code.
 
 ---
 
@@ -1750,7 +1765,8 @@ src/vouch/
   explore.py         vouch explore (local web page);  data/explore.html
   runner.py          vouch run / vouch import
   edithook.py        vouch hook claude / stop, and .vouch/cache/index.json
-  agents.py          vouch init --agents: SKILL.md, the rules block, .claude/settings.json
+  agents.py          vouch init --agents: SKILL.md, the rules block, .claude/settings.json, .mcp.json
+  mcp_server.py      vouch mcp: MCP over stdio, stdlib JSON-RPC
   hooks.py           the git pre-commit hook
   cli.py             argparse subcommands (argparse itself loaded only when parsing)
   tex/scan.py        file graph, comment masking, citations, macro awareness, sentences

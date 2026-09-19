@@ -189,6 +189,11 @@ key or a broken macro goes straight back to the agent in the same turn, with the
 fix. `--stop-gate` also stops the agent from finishing while `vouch check --strict`
 fails.
 
+Any MCP client can use the same lookups as tools (search, get a value, cite,
+compare, pending, changes, check, trace) with `vouch mcp`; `vouch init --agents mcp`
+registers it in `.mcp.json`. Acknowledging changes stays a human action: there is
+no tool for it.
+
 ## Commands
 
 | | |
@@ -209,5 +214,6 @@ fails.
 | `vouch export --csv FILE` | the provenance table |
 | `vouch catalog` | rewrite `.vouch/CATALOG.md` |
 | `vouch init --agents` | set up Claude Code: skill, rules, edit hook |
+| `vouch mcp` | the lookups as MCP tools, over stdio |
 
 The full design is in [SPEC.md](SPEC.md).

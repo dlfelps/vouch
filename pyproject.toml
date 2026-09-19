@@ -13,7 +13,7 @@ dependencies = ["tomli>=1.1; python_version < '3.11'"]
 
 [project.optional-dependencies]
 pandas = ["pandas"]
-dev = ["pytest>=7", "pandas"]
+dev = ["pytest>=7", "pandas", "mcp"]   # mcp: only to test vouch mcp against the official client
 
 [project.scripts]
 vouch = "vouch._entry:main"

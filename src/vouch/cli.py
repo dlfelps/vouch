@@ -133,9 +133,10 @@ def cmd_init(args) -> int:
 def _init_agents(root: Path, args) -> int:
     from . import agents
     parts = [p.strip() for p in (args.agents or ",".join(agents.PARTS)).split(",") if p.strip()]
-    bad = [p for p in parts if p not in agents.PARTS]
+    bad = [p for p in parts if p not in agents.PARTS + agents.OPTIONAL]
     if bad:
-        return _fatal("init", ValueError(f"--agents takes {','.join(agents.PARTS)}, not {bad}"))
+        return _fatal("init", ValueError(f"--agents takes {','.join(agents.PARTS + agents.OPTIONAL)}, "
+                                         f"not {bad}"))
     changes = agents.planned(root, parts, stop_gate=args.stop_gate)
     if not changes:
         C.out("  agents: already set up")
@@ -400,6 +401,11 @@ def cmd_trace(args) -> int:
         ctx = plan(cfg, need_paper=False, check_env=False)
     except (BuildError, ConfigError, FileNotFoundError) as exc:
         return _fatal("trace", exc)
+    if args.json:
+        from .assist import trace
+        got = trace(ctx, args.target)
+        print(_envelope("trace", "error" not in got, **got))
+        return EXIT_OK if "error" not in got else EXIT_FAIL
     target = args.target
     idx = ctx.idx
     if idx.get(target) is not None:
@@ -770,6 +776,11 @@ def cmd_todo(args) -> int:
     return EXIT_OK
 
 
+def cmd_mcp(args) -> int:
+    from .mcp_server import serve
+    return serve(Path(args.root).resolve() if args.root else None)
+
+
 def cmd_catalog(args) -> int:
     from .build import BuildError, plan
     from .catalog import write_catalog
@@ -1056,7 +1067,7 @@ def make_parser() -> argparse.ArgumentParser:
     sp.add_argument("--paper", help="the paper's main .tex (default: detected)")
     sp.add_argument("--hook", action="store_true", help="also install the git pre-commit hook")
     sp.add_argument("--agents", nargs="?", const="", metavar="PARTS",
-                    help="set up Claude Code: skill,rules,hook (default: all three)")
+                    help="set up Claude Code: skill,rules,hook,mcp (default: skill,rules,hook)")
     sp.add_argument("--stop-gate", action="store_true",
                     help="with --agents: also block finishing until `vouch check --strict` passes")
     sp.add_argument("--yes", action="store_true", help="write without asking")
@@ -1091,8 +1102,11 @@ def make_parser() -> argparse.ArgumentParser:
     sp = add("trace", cmd_trace, "where a value came from (a key, a tex file:line, or a script)")
     sp.add_argument("target")
     sp.add_argument("--code", action="store_true", help="list every code unit")
+    sp.add_argument("--json", action="store_true")
 
     add("catalog", cmd_catalog, "rewrite .vouch/CATALOG.md (every build does too)")
+
+    add("mcp", cmd_mcp, "serve search/cite/compare/check/... to MCP clients over stdio")
 
     sp = add("search", cmd_search, "find keys by words (key segments, descriptions, arguments)")
     sp.add_argument("words", nargs="+")
