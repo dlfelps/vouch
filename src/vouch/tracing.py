@@ -215,11 +215,13 @@ class Tracker:
             from .track import TrackError, check_returns, check_time
             try:
                 returns = check_returns(entry.get("returns"), f"[[track]] {entry['function']!r} returns=")
-                time_name = check_time(entry.get("time"), f"[[track]] {entry['function']!r} time=")
+                time_name, time_asked = check_time(entry.get("time"),
+                                                   f"[[track]] {entry['function']!r} time=")
             except TrackError as exc:
                 self.problems.append(str(exc))
                 continue
             self.rules.append({"patterns": pats, "matched": 0, "returns": returns, "time": time_name,
+                               "time_asked": time_asked,
                                "over": (over,) if isinstance(over, str) else tuple(over),
                                "key": entry.get("key"), "name": entry.get("name"),
                                "meta": {k: entry.get(k) for k in
@@ -264,8 +266,8 @@ class Tracker:
                     return None
                 t = Tracked(name=sanitize_key(rule["name"]) if rule["name"] else function_name_of(qual),
                             qualname=qual, code=code, over=rule["over"], key=rule["key"],
-                            returns=rule["returns"], time=rule["time"], meta=rule["meta"],
-                            via="[[track]]")
+                            returns=rule["returns"], time=rule["time"],
+                            time_asked=rule["time_asked"], meta=rule["meta"], via="[[track]]")
                 self.auto[code] = t
                 sys.monitoring.set_local_events(self.tool, code, sys.monitoring.events.PY_RETURN)
                 return t

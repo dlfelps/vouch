@@ -153,6 +153,10 @@ class _Builder:
             return "holds" if e.raw else "FALSE"
         if e.kind == "table":
             return ""
+        if e.extra.get("timing") and not e.key.endswith(".n"):
+            got = _duration(e.raw)
+            if got:
+                return got
         try:
             r = render(e.raw, e.fmt, unit=e.unit, opts=self.opts)
         except (RenderError, ValueError, TypeError):
@@ -199,6 +203,8 @@ class _Builder:
                              "inputs": sorted(d.get("inputs") or {}), "runs": d.get("runs") or []}
         if e.extra.get("alias_of"):
             it["alias_of"] = e.extra["alias_of"]
+        if e.extra.get("timing"):
+            it["timing"] = True
         return it
 
     def table(self, key: str) -> dict[str, Any]:
@@ -327,6 +333,21 @@ class _Builder:
     def _values_module(self) -> str:
         mods = self.cfg.get("python", "values_modules", []) or ["vouch_values.py"]
         return str(mods[0])
+
+
+def _duration(raw: Any) -> str:
+    """Seconds as the page shows a timing: ``12.2 ± 0.2 s``, ``340 ms``, ``1.1–1.3 min``."""
+    from .track import _UNITS, _unit_for, duration_text
+    from .values import Stat
+    if isinstance(raw, Stat):
+        unit = _unit_for(raw.mean)
+        return f"{raw.mean / _UNITS[unit]:.3g} ± {raw.std / _UNITS[unit]:.3g} {unit}"
+    if isinstance(raw, tuple) and len(raw) == 2 and all(isinstance(x, (int, float)) for x in raw):
+        unit = _unit_for(max(abs(raw[0]), abs(raw[1])))
+        return f"{raw[0] / _UNITS[unit]:.3g}–{raw[1] / _UNITS[unit]:.3g} {unit}"
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        return duration_text(raw)
+    return ""
 
 
 def _line(site: str | None) -> int:

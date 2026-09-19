@@ -82,7 +82,7 @@ section.closed .fn { display: none; }
 
 .row { border-top: 1px solid var(--line); }
 .row:first-of-type { border-top: 0; }
-.line { display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr) minmax(0, 2fr) 150px 190px;
+.line { display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr) minmax(0, 2fr) 200px 190px;
         gap: 12px; align-items: center; padding: 7px 14px; cursor: pointer; }
 .line:hover { background: var(--hover); }
 .key { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
@@ -280,7 +280,8 @@ function itemRow(fn, it) {
     h("div", { class: "key" }, h("span", { class: "tw" }, "▶"), it.key),
     h("div", { class: valClass }, it.kind === "table" ? `${it.rows ? it.rows.length : 0} rows` : it.value),
     h("div", { class: "desc", title: it.desc }, it.desc),
-    h("div", { class: "tags" }, stateTag(it.state), citedTag(it.cited)),
+    h("div", { class: "tags" }, it.timing ? h("span", { class: "pill", title: "how long the call took" }, "timing") : null,
+      stateTag(it.state), citedTag(it.cited)),
     btns));
   if (it.parts && it.parts.length) {
     row.append(h("div", { class: "parts" }, it.parts.map(p =>

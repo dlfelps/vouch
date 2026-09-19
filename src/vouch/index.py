@@ -154,6 +154,8 @@ class Index:
                 continue
             meta = self._meta(key, v)
             extra = {"call": v["call"]} if isinstance(v.get("call"), dict) else {}
+            if v.get("timing"):
+                extra["timing"] = True            # a tracked call's duration
             self._add(Entry(key, "value", raw, run=run, site=v.get("site"), extra=extra, **meta), src)
             if isinstance(raw, Stat):
                 self._add_stat_fields(key, raw, run, v.get("site"), meta, src, extra)

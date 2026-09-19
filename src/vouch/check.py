@@ -222,7 +222,7 @@ def collect(ctx: Context) -> list[Issue]:
     read |= {k.rsplit(".", 1)[0] for k in read}
     uncited = [k for k, e in idx.entries.items()
                if e.kind == "value" and k not in cited_keys and k not in read
-               and "alias_of" not in e.extra]
+               and "alias_of" not in e.extra and not e.extra.get("timing")]
     if uncited:
         issues.append(Issue("unused-value", "info", f"{len(uncited)} recorded value(s) are not "
                             f"cited: " + ", ".join(sorted(uncited)[:5])

@@ -90,7 +90,9 @@ def test_values_are_grouped_by_script_then_function(proj):
     assert double["derived"]["deps"] == ["r.acc.mean"] and double["derived"]["runs"] == ["experiments.train"]
     alias = next(i for i in vv["aliases"]["items"] if i["key"] == "r.acc")
     assert alias["alias_of"] == "evaluate.cifar.resnet.acc" and alias["cited"] == ["paper/main.tex:2"]
-    assert data["counts"] == {"values": 4, "claims": 1, "tables": 1, "figures": 0, "runs": 1}
+    assert data["counts"] == {"values": 5, "claims": 1, "tables": 1, "figures": 0, "runs": 1}
+    timing = ev["items"][1]
+    assert timing["key"] == "evaluate.cifar.resnet.time" and timing["timing"] is True
     assert data["issues"] == []
 
 

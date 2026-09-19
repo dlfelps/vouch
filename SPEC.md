@@ -475,7 +475,11 @@ A `returns=` whose length doesn't match what the function returned warns once an
 - `call.via` is `"[[track]]"` when the function was listed in `vouch.toml` rather than decorated (§4.3b), because the code itself then shows no decorator.
 - `vouch trace`, tooltips, the provenance appendix (§7.4) and `vouch explore` show all of it: `recorded by evaluate(dataset=cifar, model=resnet, lr=0.001) over seed=0..4 (5 calls)`, `took 10.1 ± 0.1 min per call, 50.5 min in all`, each call's result (with its duration in `trace` and `explore`: `seed=0: 0.931 (10.2 min)`), and the function with its definition and call sites.
 
-**Timing you can cite.** `time=True` also records the duration as a value of its own, `<key>.time`, in seconds (unit `s`): a float for a single call, a `Stat` over the `over=` calls (so `\vouch{evaluate.cifar.resnet.lr_0_001.time.mean}` is the mean seconds per seed), with each call's duration in its `call.results`. `time="walltime"` names it differently. It is off by default because most durations are not claims the paper makes. When they are ("one training run takes …"), timing is measured by the same code that produced the result, not remembered. If the function's result already has a field with that name, the result wins and a warning suggests another name. Durations differ on every run, so a cited one will be reported as changed after a re-run unless its printed precision hides the difference (then it is `hidden`, §9.2). Cite it with a coarse format.
+**Timing is a value too, by default.** Every tracked call also records its duration as a value of its own, `<key>.time`, in seconds (unit `s`): a float for a single call, a `Stat` over the `over=` calls (so `\vouch{evaluate.cifar.resnet.lr_0_001.time.mean}` is the mean seconds per seed), with each call's duration in its `call.results`. Measuring costs two clock reads; finding out later how long an experiment took means running it again, so vouch always keeps it.
+- `time="walltime"` names it differently; `time=False` leaves the value out (the durations stay in the call's provenance).
+- If the function's result already has a field named `time`, the result wins. That is silent by default, and a warning when `time=` asked for the name.
+- Timing values are marked (`"timing": true` in the record). `vouch explore` tags them, and `vouch check` doesn't count them among values nobody cites.
+- Durations differ on every run. A cited one is reported as changed after a re-run unless its printed precision hides the difference (then it is `hidden`, §9.2), so cite it with a coarse format.
 
 The clock is `time.perf_counter()` around the call. For an async function that includes the time spent awaiting. For work a GPU does asynchronously, it includes whatever the function waits for before returning, which is the usual case when a function returns a number.
 
@@ -503,7 +507,7 @@ desc     = "top-1 test accuracy"
 function = ["models.py::Trainer.fit", "*::score_*"]   # a list is fine; no "::" means any file
 key      = "{dataset}.{model}"                   # the same fields as the decorator: over key
 returns  = ["mean", "std"]                       # returns time name fmt desc unit better include exclude
-time     = true                                  # also record <key>.time (seconds)
+time     = false                                 # no <key>.time value (on by default)
 ```
 
 ```console

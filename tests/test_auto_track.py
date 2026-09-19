@@ -31,8 +31,10 @@ MODELS = '''
 '''
 
 
-def values(project, run_id="exp"):
-    return project.record(run_id)["values"]
+def values(project, run_id="exp", timing=False):
+    """The run's values; without ``timing``, only results (not the ``.time`` durations)."""
+    got = project.record(run_id)["values"]
+    return got if timing else {k: v for k, v in got.items() if not v.get("timing")}
 
 
 def test_listed_functions_are_recorded_with_their_calls(project):
@@ -139,7 +141,7 @@ def test_config_tracked_calls_are_timed(project):
         slow(1)
     ''')
     project.run("exp.py", check=True)
-    v = values(project)
+    v = values(project, timing=True)
     assert 0.015 < v["slow.x_1"]["call"]["seconds"][0] < 5
     assert v["slow.x_1.time"]["value"] == v["slow.x_1"]["call"]["seconds"][0]
 
@@ -239,7 +241,7 @@ def test_unmatched_rules_wait_for_the_end_of_the_script(project):
     ''')
     proc = project.run("exp.py", check=True)
     assert "matched no function" not in proc.stderr
-    assert list(project.record("second")["values"]) == ["throughput.resnet.batch_64"]
+    assert list(values(project, "second")) == ["throughput.resnet.batch_64"]
 
 
 def test_without_tracking_it_says_so(project):

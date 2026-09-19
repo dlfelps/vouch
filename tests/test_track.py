@@ -109,8 +109,10 @@ def test_tuple_results_become_one_key_per_element():
 # recording, in real runs
 # ---------------------------------------------------------------------------
 
-def values(project, run="exp"):
-    return project.record(run)["values"]
+def values(project, run="exp", timing=False):
+    """The run's values; without ``timing``, only results (not the ``.time`` durations)."""
+    got = project.record(run)["values"]
+    return got if timing else {k: v for k, v in got.items() if not v.get("timing")}
 
 
 def test_scalar_dict_and_nested_results(project):
@@ -411,7 +413,7 @@ def test_calls_are_timed(project):
         import time
         import vouch
 
-        @vouch.track(over="seed", time=True, desc="acc")
+        @vouch.track(over="seed", desc="acc")
         def train(model, seed=0):
             time.sleep(0.03)
             return {"acc": 0.9 + seed / 100}
@@ -421,32 +423,42 @@ def test_calls_are_timed(project):
             time.sleep(0.02)
             return 1200.0
 
-        @vouch.track(desc="plain")
-        def plain(x):
+        @vouch.track(time=False, desc="untimed")
+        def untimed(x):
             return float(x)
 
-        @vouch.track(time=True, desc="clash")
+        @vouch.track(desc="clash")
         def clash(x):
+            return {"time": 1.0, "acc": 0.5}
+
+        @vouch.track(time=True, desc="clash, asked")
+        def clash_asked(x):
             return {"time": 1.0, "acc": 0.5}
 
         for s in range(3):
             train("resnet", seed=s)
         bench("resnet")
-        plain(1)
+        untimed(1)
         clash(1)
+        clash_asked(1)
     ''')
     proc = project.run("exp.py", check=True)
-    v = values(project)
+    v = values(project, timing=True)
     secs = v["train.resnet.acc"]["call"]["seconds"]
     assert len(secs) == 3 and all(0.025 < s < 5 for s in secs)
     t = v["train.resnet.time"]
     assert t["type"] == "stat" and t["unit"] == "s" and decode("stat", t["value"]).n == 3
+    assert t["timing"] is True and "timing" not in v["train.resnet.acc"]      # on by default
     assert t["call"]["results"] == secs and "mean and std over seed" in t["desc"]
     assert 0.015 < v["bench.resnet.walltime"]["value"] < 5
     assert v["bench.resnet.walltime"]["call"]["seconds"] == [v["bench.resnet.walltime"]["value"]]
-    assert "plain.x_1.time" not in v and len(v["plain.x_1"]["call"]["seconds"]) == 1
-    assert v["clash.x_1.time"]["value"] == 1.0                   # the result's own field wins
-    assert "clash() returns a field named 'time'" in proc.stderr
+    assert "bench.resnet.time" not in v                            # renamed, not doubled
+    # time=False: no value, but the provenance still has the duration
+    assert "untimed.x_1.time" not in v and len(v["untimed.x_1"]["call"]["seconds"]) == 1
+    # a result field of the same name wins; a warning only if timing was asked for
+    assert v["clash.x_1.time"]["value"] == 1.0 and "timing" not in v["clash.x_1.time"]
+    assert "clash() returns" not in proc.stderr
+    assert "clash_asked() returns a field named 'time'" in proc.stderr
 
 
 def test_timing_shows_in_trace_and_the_appendix(project, capsys):

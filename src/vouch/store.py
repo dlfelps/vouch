@@ -44,7 +44,7 @@ FIELD_ORDER = ("type", "value", "holds", "hash", "kind", "granularity", "why", "
                "files", "whole_files",
                "python", "platform", "packages", "commit", "dirty", "mean", "std", "n",
                "min", "max", "fmt", "unit", "better", "desc", "columns", "row_key", "rows",
-               "highlight", "second", "midrules", "values", "call", "function", "args",
+               "highlight", "second", "midrules", "values", "timing", "call", "function", "args",
                "over", "calls", "results", "seconds", "not_in_key", "sites", "via", "site")
 
 # maps written in the order they were recorded (a call's arguments, in signature order)
