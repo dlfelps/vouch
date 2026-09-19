@@ -2,6 +2,8 @@
 
 Every number in your paper, vouched for by the code that produced it.
 
+**Full documentation: https://dlfelps.github.io/vouch/**
+
 Experiments **record** their results as they run. The paper **cites** them by key,
 `\vouch{key}`, and never contains a typed number. `vouch check` proves that every
 cited value exists, comes from a run whose code hasn't changed since, and that
@@ -13,9 +15,10 @@ the PDF.
 It is built for people and for LLM agents writing papers: the correct number is
 always cheaper to use than a guessed one.
 
-**New here? Start with the [tutorial](examples/tutorial/README.md):** a
-two-second experiment and a paper draft, taken step by step to a PDF whose values,
-table and figure all come from the code.
+**New here? Start with the [tutorial](examples/tutorial/README.md)** (also
+browsable at https://dlfelps.github.io/vouch/tutorial/): a two-second experiment
+and a paper draft, taken step by step to a PDF whose values, table and figure
+all come from the code.
 
 ```console
 $ pip install -e .          # from a clone; Python ≥ 3.10, no dependencies
@@ -226,4 +229,5 @@ no tool for it.
 | `vouch init --agents` | set up Claude Code: skill, rules, edit hook |
 | `vouch mcp` | the lookups as MCP tools, over stdio |
 
-The full design is in [SPEC.md](SPEC.md).
+The full design is in [SPEC.md](SPEC.md). Browsable documentation:
+https://dlfelps.github.io/vouch/.
