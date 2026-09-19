@@ -9,11 +9,19 @@ description = "Every number in your paper, vouched for by the code that produced
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Daniel Felps" }]
+# The base install is everything: recording, the LaTeX side, check, explore, the Claude
+# Code hooks and the MCP server (`vouch mcp` speaks the protocol with the standard library).
 dependencies = ["tomli>=1.1; python_version < '3.11'"]
 
 [project.optional-dependencies]
+# DataFrames: record_all/table on pandas objects, vouch_values.py inputs with as_frame=True.
 pandas = ["pandas"]
-dev = ["pytest>=7", "pandas", "mcp"]   # mcp: only to test vouch mcp against the official client
+# `vouch mcp` needs nothing extra. The extra exists so `pip install "vouch[mcp]"` installs
+# cleanly, and gives any future transport that does need a package a place to declare it.
+mcp = []
+# The test suite; `mcp` is the official client, used only to test `vouch mcp` against it.
+test = ["pytest>=7", "pandas", "mcp>=2"]
+dev = ["vouch[test]"]
 
 [project.scripts]
 vouch = "vouch._entry:main"

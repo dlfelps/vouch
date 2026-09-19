@@ -1778,7 +1778,7 @@ src/vouch/
 tests/  examples/minimal/
 ```
 
-Tooling: uv, pytest, argparse (no click, to keep the core dependency-free). Optional extras: `vouch[pandas]` and `vouch[mcp]`.
+Tooling: uv, pytest, argparse (no click, to keep the core dependency-free). The base install has no dependencies (`tomli` on Python 3.10) and includes everything, `vouch mcp` too. Extras: `vouch[pandas]` (DataFrames); `vouch[mcp]`, empty, reserved for a transport that would need a package; `vouch[test]` (pytest, pandas, and the official `mcp` SDK, used only to test the server against the official client).
 
 ### 19.2 Milestones
 

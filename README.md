@@ -18,6 +18,11 @@ $ pip install -e .          # from a clone; Python ≥ 3.10, no dependencies
 $ vouch init                # finds your paper, writes vouch.toml, copies vouch.sty
 ```
 
+The base install is everything, the MCP server included, with no dependencies
+(only `tomli` on Python 3.10). Extras: `.[pandas]` to record pandas DataFrames;
+`.[mcp]` installs nothing more (`vouch mcp` needs nothing); `.[test]` for the test
+suite, which includes the official MCP SDK to test `vouch mcp` against.
+
 ## 1. Record
 
 Decorate the function that computes your results. Every call is recorded, keyed by
