@@ -20,7 +20,28 @@ def main() -> int:
             sys.stderr.write(text)
         return code
     from .cli import main as cli_main
-    return cli_main(argv)
+    try:
+        return cli_main(argv)
+    except OSError as exc:
+        if not _stdout_closed(exc):
+            raise
+        import os                          # `vouch ls | head`: the reader went away
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        return 1
+
+
+def _stdout_closed(exc: OSError) -> bool:
+    """A write to a pipe whose reader exited: BrokenPipeError on POSIX, EINVAL on Windows."""
+    if isinstance(exc, BrokenPipeError):
+        return True
+    import errno
+    if exc.errno != errno.EINVAL:
+        return False
+    try:
+        sys.stdout.flush()
+    except OSError:
+        return True
+    return False
 
 
 if __name__ == "__main__":  # pragma: no cover

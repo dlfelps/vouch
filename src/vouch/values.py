@@ -47,6 +47,11 @@ def sanitize_key(raw: object) -> str:
 _SEGMENT_BAD = re.compile(r"[^A-Za-z0-9_-]")
 
 
+def natural_key(key: str) -> list:
+    """Sort key that orders numbers inside keys by value: n_train_20 before n_train_160."""
+    return [int(t) if i % 2 else t for i, t in enumerate(re.split(r"(\d+)", key))]
+
+
 def slug_segment(raw: object) -> str:
     """One key segment from a row or column name: ``0.1`` -> ``0_1``, ``ResNet 50`` -> ``ResNet_50``.
 

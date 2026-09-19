@@ -50,6 +50,7 @@ class Citing:
     file: str
     line: int
     sentence: str
+    table: str | None = None     # cited as a cell of this vouchtable
 
 
 @dataclasses.dataclass
@@ -72,7 +73,8 @@ class Change:
                 "old": (self.old or {}).get("plain"), "new": self.new.plain,
                 "old_raw": (self.old or {}).get("raw"), "new_raw": self.new.raw,
                 "source": self.new.source, "delta": self.delta, "relative": self.rel,
-                "citations": [dataclasses.asdict(c) for c in self.citations]}
+                "citations": [{k: v for k, v in dataclasses.asdict(c).items() if v is not None}
+                              for c in self.citations]}
 
 
 # ---------------------------------------------------------------------------
@@ -131,7 +133,7 @@ def currents(idx: Index, plans) -> tuple[dict[str, Current], dict[str, list[Citi
                 keys = [t.cell_key(i, col) for i in range(len(t.rows)) for col in t.columns]
             for k in keys:
                 cites.setdefault(k, [])
-                where = Citing(c.file, c.line, doc.sentence(c))
+                where = Citing(c.file, c.line, doc.sentence(c), c.key if k != c.key else None)
                 if all((w.file, w.line) != (where.file, where.line) for w in cites[k]):
                     cites[k].append(where)
                 if c.kind in ("value", "raw") or k != c.key:
@@ -268,7 +270,9 @@ def compute(cfg: Config, baseline: dict[str, dict], current: dict[str, Current],
                               where, delta, rel))
         else:
             if cur.kind == "claim":
-                reasons = reasons or ["the values behind the claim moved"]
+                was, now = bool((old.get("raw") or {}).get("holds")), bool(cur.raw.get("holds"))
+                reasons = reasons or [("the claim no longer holds" if was else "the claim holds now")
+                                      if was != now else "the values behind the claim moved"]
             out.append(Change(key, "suspicious" if reasons and cur.kind == "value" else "changed",
                               reasons, old, cur, where, delta, rel))
     return out

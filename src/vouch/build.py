@@ -29,7 +29,7 @@ from .issues import Issue
 from .render import Options, RenderError, Rendered, render
 from .tex import emit
 from .tex.scan import Document, scan
-from .values import Stat
+from .values import Stat, natural_key
 
 VALUE_KINDS = ("value", "stat-field", "element", "param", "table-cell")
 
@@ -113,7 +113,7 @@ def _derived_lines(e: Entry) -> list[str]:
     d = e.extra.get("derived")
     if not d:
         return []
-    deps = [k for k in d.get("deps") or [] if not k.startswith("keys:")]
+    deps = sorted((k for k in d.get("deps") or [] if not k.startswith("keys:")), key=natural_key)
     lines = [f"derived by {d.get('function', '?')}" + (f" at {d['site']}" if d.get("site") else "")]
     if deps:
         lines.append("from " + ", ".join(deps[:6]) + (f" (+{len(deps) - 6} more)" if len(deps) > 6 else ""))
@@ -253,7 +253,7 @@ def _derived_latex(e: Entry, lines: list[str], change: ch.Change | None) -> str:
     if d.get("site"):
         fn += r" at \texttt{" + esc(d["site"]) + "}"
     lines.append(fn)
-    deps = [k for k in d.get("deps") or [] if not k.startswith("keys:")]
+    deps = sorted((k for k in d.get("deps") or [] if not k.startswith("keys:")), key=natural_key)
     if deps:
         shown = ", ".join(r"\texttt{" + esc(k) + "}" for k in deps[:8])
         lines.append("from " + shown + (f" (+{len(deps) - 8} more)" if len(deps) > 8 else ""))
@@ -413,6 +413,15 @@ def prepare_paper(cfg: Config, idx: Index, paper: dict) -> PaperPlan:
                 continue
             if e is None and idx.awaiting_build(c.key):
                 continue                 # reported once, as out-of-sync: run vouch build
+            failed = idx.failed_derivation(c.key) if e is None else None
+            if failed is not None:       # defined, but its definition raised: say so here
+                issues.append(Issue("derive-error", "error",
+                                    f"{c.key} is cited here, but its definition failed "
+                                    f"(the derive-error at {failed})",
+                                    c.file, c.line, subject=c.key,
+                                    fix=f"fix the definition at {failed}, then vouch build",
+                                    fix_kind="edit"))
+                continue
             if e is None:
                 sugg = idx.suggest(c.key)
                 macro = {"value": "vouch", "raw": "vouchraw", "claim": "vouchclaim",

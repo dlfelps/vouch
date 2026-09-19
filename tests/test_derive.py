@@ -479,8 +479,9 @@ FAKE_MPL = {
                     path = os.fspath(fname)
                     if not os.path.splitext(path)[1]:
                         path += "." + (format or "png")
+                    epoch = os.environ.get("SOURCE_DATE_EPOCH")
                     with open(path, "w") as fh:
-                        fh.write(f"figure {kw}")
+                        fh.write(f"figure {kw}" + (f" epoch={epoch}" if epoch else ""))
                 else:
                     fname.write(b"x")
     ''',
@@ -516,6 +517,58 @@ plt.savefig(io.BytesIO())
     assert arts["paper/figs/curve.pdf"]["site"] == "exp.py:6"
 
 
+def test_tracked_figures_are_saved_reproducibly(project):
+    for rel, text in FAKE_MPL.items():
+        project.write(rel, text)
+    project.write("exp.py", """
+        import os
+        import vouch
+        import matplotlib.pyplot as plt
+
+        os.makedirs("figs", exist_ok=True)
+        plt.savefig("figs/a.pdf")
+        plt.savefig("figs/b.svg")
+        plt.savefig("figs/c.pdf", metadata={"CreationDate": "D:2026", "Title": "t"})
+        plt.savefig("figs/d.png")
+        plt.savefig("figs/e.eps")
+        plt.savefig("figs/f.pdf", backend="pgf")
+        assert "SOURCE_DATE_EPOCH" not in os.environ          # set only during the save
+    """)
+    project.run("exp.py", check=True)
+    got = {p.name: p.read_text() for p in (project.root / "figs").iterdir()}
+    assert got["a.pdf"] == "figure {'metadata': {'CreationDate': None}}"      # no date stamp
+    assert got["b.svg"] == "figure {'metadata': {'Date': None}}"
+    assert got["c.pdf"] == "figure {'metadata': {'CreationDate': 'D:2026', 'Title': 't'}}"
+    assert got["d.png"] == "figure {}"
+    assert got["e.eps"] == "figure {} epoch=0"                  # ps can't omit the date
+    assert got["f.pdf"] == "figure {'backend': 'pgf'}"                        # left alone
+
+
+def test_real_matplotlib_saves_the_same_figure_the_same_way(project):
+    pytest.importorskip("matplotlib")
+    project.write("exp.py", """
+        import os, time
+        import vouch
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots()
+        ax.plot([1, 3, 2])
+        for ext in ("pdf", "svg", "eps"):
+            fig.savefig(f"one.{ext}")
+        time.sleep(1.1)                       # the timestamps would differ by now
+        for ext in ("pdf", "svg", "eps"):
+            fig.savefig(f"one.{ext}".replace("one", "two"))
+        assert "SOURCE_DATE_EPOCH" not in os.environ
+    """)
+    project.run("exp.py", check=True)
+    for ext in ("pdf", "svg"):
+        assert (project.root / f"one.{ext}").read_bytes() == (project.root / f"two.{ext}").read_bytes()
+    one, two = ((project.root / f"{n}.eps").read_text(encoding="latin-1") for n in ("one", "two"))
+    assert one.replace("one.eps", "two.eps") == two     # the title is the file name
+
+
 def test_a_saved_figure_is_tracked_in_the_paper(project):
     for rel, text in FAKE_MPL.items():
         project.write(rel, text)
@@ -537,3 +590,43 @@ def test_a_saved_figure_is_tracked_in_the_paper(project):
     assert got.get("figure-stale") is None
     assert issues(project)["figure-stale"][0].subject == "paper/figs/curve.pdf"
     assert math.isfinite(1.0)
+
+
+def test_changed_table_cells_are_one_issue_and_one_ack(proj, capsys):
+    proj.write("vouch_values.py", VALUES)
+    paper(proj, "Gap \\vouch{cifar.gap}.\n\\begin{tabular}{lr}\\vouchtable{summary}\\end{tabular}")
+    build(Config.load(proj.root))
+    proj.write("exp.py", EXP.replace("0.90, 0.91, 0.92", "0.80, 0.81, 0.82")
+                            .replace("0.93, 0.94, 0.92", "0.95, 0.96, 0.94"))
+    proj.run("exp.py", check=True)
+    assert cli.main(["build", "--root", str(proj.root)]) == 0
+    out = capsys.readouterr().out
+    assert "table summary   2 cells changed, 1 suspicious" in out
+    got = issues(proj)
+    table = [i for i in got["suspicious"] if i.subject == "summary"]
+    assert len(table) == 1 and "2 cell(s) changed" in table[0].message
+    assert not [i for k in ("changed", "suspicious") for i in got.get(k, [])
+                if i.subject.startswith("summary.")]
+    assert cli.main(["ack", "summary", "--root", str(proj.root)]) == 0      # the whole table
+    assert "2 change(s) acknowledged" in capsys.readouterr().out
+    assert cli.main(["ack", "cifar.*", "--root", str(proj.root)]) == 0      # a glob
+    assert "acknowledged cifar.gap" in capsys.readouterr().out
+    assert not [i for k in ("changed", "suspicious") for i in issues(proj).get(k, [])]
+
+
+def test_a_cited_value_whose_definition_failed(proj):
+    proj.write("vouch_values.py", '''
+        import vouch
+
+        @vouch.derive("broken", desc="d")
+        def broken(v):
+            raise ValueError("no such thing")
+    ''')
+    paper(proj, "It is \\vouch{broken}.")
+    build(Config.load(proj.root))
+    got = issues(proj)
+    assert "unknown-key" not in got
+    msgs = sorted(i.message for i in got["derive-error"])
+    assert msgs[0] == "broken is cited here, but its definition failed (the derive-error at " \
+                      "vouch_values.py:3)"
+    assert "ValueError: no such thing" in msgs[1]

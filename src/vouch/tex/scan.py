@@ -175,7 +175,7 @@ def line_of(src: str, offset: int) -> int:
 
 # Structural commands end a "sentence" too: a value cited in a table row or list
 # item should show that row or item, not the whole environment around it.
-_STRUCT = r"\\begin\{[^}]*\}(?:\{[^}]*\})?|\\end\{[^}]*\}|\\\\|\\item\b|\\(?:top|mid|bottom)rule\b|\\hline\b"
+_STRUCT = r"\\begin\{[^}]*\}(?:\{[^}]*\}|\[[^\]]*\])?|\\end\{[^}]*\}|\\\\|\\item\b|\\(?:top|mid|bottom)rule\b|\\hline\b|\\centering\b"
 _BOUNDARY_BACK = re.compile(r"(?:[.!?](?=\s)|\n[ \t]*\n|" + _STRUCT + ")")
 _BOUNDARY_FWD = re.compile(r"(?:[.!?](?=\s|$)|\n[ \t]*\n|" + _STRUCT + ")")
 

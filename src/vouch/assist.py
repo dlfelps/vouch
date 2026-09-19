@@ -484,7 +484,7 @@ def describe(ctx, key: str) -> dict:
         st = ctx.states.get(r)
         code = rec.get("code") or {}
         info = {"run": r, "state": st.state if st else "", "summary": st.summary() if st else "",
-                "command": " ".join(rec.get("command") or []), "entry": rec.get("entry"),
+                "run_command": " ".join(rec.get("command") or []), "entry": rec.get("entry"),
                 "started": rec.get("started"), "duration_s": rec.get("duration_s"),
                 "git": rec.get("git"), "granularity": code.get("granularity"),
                 "code_units": len(code.get("units") or {}),
@@ -506,8 +506,29 @@ def describe(ctx, key: str) -> dict:
     return out
 
 
+def figure_info(ctx, rel: str) -> dict | None:
+    """Where a figure came from: the run and savefig line, and whether the file on disk
+    is still what that run saved. None if no run saved ``rel``."""
+    fig = ctx.idx.figures.get(rel)
+    if fig is None:
+        return None
+    rec = ctx.idx.runs.get(fig.run) or {}
+    st = ctx.states.get(fig.run)
+    kinds = {r.kind for r in (st.reasons if st else []) if r.subject == rel}
+    return {"figure": rel, "run": fig.run, "state": st.state if st else "",
+            "saved_at": fig.site, "hash": fig.hash,
+            "file": "differs from what the run saved" if "tampered" in kinds else
+                    "missing" if "absent" in kinds else "as the run saved it",
+            "run_command": " ".join(rec.get("command") or []),
+            "started": rec.get("started"), "git": (rec.get("git") or {}).get("commit"),
+            "rerun": st.command if st and st.is_error else None,
+            "cited_at": [f"{c.file}:{c.line}" for pl in ctx.plans for c in pl.doc.citations
+                         if c.kind == "figure" and c.key == rel]}
+
+
 def trace(ctx, target: str) -> dict:
-    """A key; a tex ``file:line`` (what it cites); or a script/file (the runs that used it)."""
+    """A key; a tex ``file:line`` (what it cites); a figure (the run that saved it); or a
+    script/file (the runs that used it)."""
     idx = ctx.idx
     if idx.get(target) is not None or idx.pending_for(target) is not None:
         return {"target": target, "type": "key", **describe(ctx, target)}
@@ -524,6 +545,9 @@ def trace(ctx, target: str) -> dict:
     cfg = ctx.cfg
     cands = {cfg.rel(target), Path(target).as_posix().removeprefix("./")}
     rel = next((c for c in cands if (cfg.root / c).exists()), cfg.rel(target))
+    fig = figure_info(ctx, rel)
+    if fig is not None:
+        return {"target": target, "type": "figure", **fig}
     runs = [r for r, rec in sorted(idx.runs.items())
             if rec.get("entry") == rel or any(u.split("::")[0] == rel
                                               for u in (rec.get("code") or {}).get("units", {}))]
@@ -533,5 +557,5 @@ def trace(ctx, target: str) -> dict:
              "values": [{"key": k, "cited_at": cited_at(ctx, k)} for k in
                         sorted(k for k, e in idx.entries.items() if e.run == r and e.kind == "value")]}
             for r in runs]}
-    return {"target": target, "error": f"{target!r} is not a key, a tex file:line, or a file any "
-                                       f"run used", "suggestions": idx.suggest(target)}
+    return {"target": target, "error": f"{target!r} is not a key, a tex file:line, a figure or a "
+                                       f"file any run used", "suggestions": idx.suggest(target)}

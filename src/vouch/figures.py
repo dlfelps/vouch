@@ -8,10 +8,16 @@ file:line of the ``savefig`` call. Its content hash is taken when the run ends, 
 matplotlib is never imported by vouch. If it is already loaded, it is patched now;
 otherwise a finder on ``sys.meta_path`` waits for ``matplotlib.figure`` to be
 imported, patches it, and steps aside. Saving to a file object is not tracked.
+
+A tracked figure is saved reproducibly: matplotlib stamps the time into pdf, svg and
+ps files (and random ids into svg), so re-running an unchanged plot would otherwise
+look like a changed figure. vouch leaves the date out -- unless the call sets it in
+``metadata=`` or ``SOURCE_DATE_EPOCH`` is set -- and fixes svg's id salt.
 """
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import importlib.abc
 import importlib.util
@@ -59,6 +65,32 @@ def _saved_path(fname, fmt: str | None) -> str | None:
     return path
 
 
+@contextlib.contextmanager
+def _reproducible(fmt: str, kwargs: dict):
+    """Save so that the same figure gives the same bytes (see the module docstring).
+    Edits ``kwargs`` in place; a call that picks its own ``backend=`` is left alone."""
+    if "backend" in kwargs:
+        yield
+        return
+    with contextlib.ExitStack() as stack:
+        if "SOURCE_DATE_EPOCH" not in os.environ:
+            if fmt in ("pdf", "svg"):
+                md = dict(kwargs.get("metadata") or {})
+                md.setdefault("CreationDate" if fmt == "pdf" else "Date", None)
+                kwargs["metadata"] = md
+            elif fmt in ("ps", "eps"):                # ps can't omit it: a fixed date
+                os.environ["SOURCE_DATE_EPOCH"] = "0"
+                stack.callback(os.environ.pop, "SOURCE_DATE_EPOCH", None)
+        if fmt == "svg":
+            try:
+                import matplotlib
+                if matplotlib.rcParams.get("svg.hashsalt") is None:
+                    stack.enter_context(matplotlib.rc_context({"svg.hashsalt": "vouch"}))
+            except Exception:
+                pass
+        yield
+
+
 def patch(module) -> None:
     fig = getattr(module, "Figure", None)
     orig = getattr(fig, "savefig", None)
@@ -67,16 +99,23 @@ def patch(module) -> None:
 
     @functools.wraps(orig)
     def savefig(self, fname, *args, **kwargs):
-        result = orig(self, fname, *args, **kwargs)
+        path = None
         if _enabled:
             try:
                 path = _saved_path(fname, kwargs.get("format"))
-                if path is not None:
-                    from .api import _figure_saved
-                    _figure_saved(path, _caller_site())
-            except Exception as exc:          # bookkeeping never breaks the experiment
-                from .api import _warn
-                _warn(f"could not record the saved figure {fname!r}: {exc}")
+            except Exception:
+                path = None
+        if path is None:
+            return orig(self, fname, *args, **kwargs)
+        fmt = kwargs.get("format") or os.path.splitext(path)[1][1:]
+        with _reproducible(str(fmt).lower(), kwargs):
+            result = orig(self, fname, *args, **kwargs)
+        try:
+            from .api import _figure_saved
+            _figure_saved(path, _caller_site())
+        except Exception as exc:              # bookkeeping never breaks the experiment
+            from .api import _warn
+            _warn(f"could not record the saved figure {fname!r}: {exc}")
         return result
 
     savefig.__vouch__ = True

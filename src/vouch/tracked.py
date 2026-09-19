@@ -203,8 +203,9 @@ class _Combined:
 def flush(run) -> None:
     """Turn a run's combined calls into values (numbers -> Stat). Called at finalize."""
     from .api import _Notes
+    reports: dict[str, tuple[Any, list[str]]] = {}     # one set of warnings per function
     for base, comb in sorted(run._tracked.items()):
-        notes = _Notes()
+        notes, recorded_all = reports.setdefault(f"{comb.via} {comb.fn_ref}", (_Notes(), []))
         fields: dict[str, list[Any]] = {}
         for res in comb.results:
             for rel, v in res.items():
@@ -244,7 +245,9 @@ def flush(run) -> None:
                                      comb.fname, comb.site, notes, call,
                                      f"; mean and std over {over}",
                                      list(comb.seconds) if timed else None, comb.time_asked)
-        run._report_bulk(notes, recorded, who=f"{comb.via} {comb.fn_ref}")
+        recorded_all += recorded
+    for who, (notes, recorded) in reports.items():
+        run._report_bulk(notes, recorded, who=who)
     run._tracked.clear()
 
 

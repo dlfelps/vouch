@@ -24,7 +24,7 @@ from .build import BuildError, Context, comparable, plan
 from .config import Config
 from .index import source_runs
 from .issues import Issue, apply_severity, ordered
-from .values import is_finite_value
+from .values import is_finite_value, natural_key
 
 
 @dataclasses.dataclass
@@ -208,10 +208,43 @@ def collect(ctx: Context) -> list[Issue]:
                                         f"{c.key} has no description (add desc= or a [metrics] "
                                         f"pattern)", c.file, c.line, subject=c.key))
 
-    # changes to cited values
+    # changes to cited values; cells cited only through a table are one issue per table
+    by_table: dict[str, list] = {}
     for change in ctx.changes:
+        via = {w.table for w in change.citations}
+        if change.pending and len(via) == 1 and None not in via:
+            by_table.setdefault(via.pop(), []).append(change)
+    for table, cells in sorted(by_table.items()):
+        flagged = [c for c in cells if c.cls == "suspicious"]
+        shown = []
+        for c in sorted(cells, key=lambda c: (c.cls != "suspicious", natural_key(c.key)))[:4]:
+            old = " | ".join(ch.readable(p) for p in (c.old or {}).get("plain", [])) or "?"
+            new = " | ".join(ch.readable(p) for p in c.new.plain) or "?"
+            shown.append(f"{c.key.removeprefix(table + '.')} {old} -> {new}")
+        more = f", ... (+{len(cells) - 4} more)" if len(cells) > 4 else ""
+        where = sorted({(w.file, w.line) for c in cells for w in c.citations})
+        issues.append(Issue("suspicious" if flagged else "changed", "warning",
+                            f"table {table}: {len(cells)} cell(s) changed"
+                            + (f", {len(flagged)} POSSIBLE PROBLEM(s)" if flagged else "")
+                            + ": " + ", ".join(shown) + more,
+                            subject=table, where_all=where, fix_kind="human",
+                            fix=f"re-read the table and what the text says about it, then: "
+                                f"vouch ack {table}",
+                            detail={"cells": [c.to_json() for c in cells]}))
+    grouped = {c.key for cells in by_table.values() for c in cells}
+    for change in ctx.changes:
+        if change.key in grouped:
+            continue
+        if change.new.kind == "claim" and not (change.new.raw or {}).get("holds", True):
+            continue                  # false now: the false-claim error says it, and louder
         where = [(w.file, w.line) for w in change.citations]
-        if change.pending:
+        if change.pending and change.cls == "figure-changed":
+            issues.append(Issue(change.cls, "warning", f"{change.key}: the figure file changed",
+                                subject=change.key, where_all=where, fix_kind="human",
+                                fix=f"look at the figure and re-read its caption and the text "
+                                    f"about it, then: vouch ack {change.key}",
+                                detail=change.to_json()))
+        elif change.pending:
             old = " | ".join(ch.readable(p) for p in (change.old or {}).get("plain", [])) or "?"
             new = " | ".join(ch.readable(p) for p in change.new.plain) or "?"
             msg = f"{change.key}: {old} -> {new}"

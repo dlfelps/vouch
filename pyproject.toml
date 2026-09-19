@@ -20,7 +20,7 @@ pandas = ["pandas"]
 # cleanly, and gives any future transport that does need a package a place to declare it.
 mcp = []
 # The test suite; `mcp` is the official client, used only to test `vouch mcp` against it.
-test = ["pytest>=7", "pandas", "mcp>=2"]
+test = ["pytest>=7", "pandas", "mcp>=2", "matplotlib"]   # matplotlib: the tutorial
 dev = ["vouch[test]"]
 
 [project.scripts]

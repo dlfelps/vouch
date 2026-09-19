@@ -17,6 +17,7 @@ from pathlib import Path
 from .changes import readable
 from .index import source_runs
 from .render import Options, RenderError, render
+from .values import natural_key
 
 SPLIT_AT = 300
 HEADER = [
@@ -65,7 +66,7 @@ def lines_for(ctx) -> dict[str, list[str]]:
     changes = ctx.pending                  # changed since last acknowledged
     out: dict[str, list[str]] = {}
     aliases: dict[str, str] = {}
-    for key in sorted(idx.entries):
+    for key in sorted(idx.entries, key=natural_key):
         e = idx.entries[key]
         if e.kind in ("stat-field", "element", "table-cell", "table"):
             continue

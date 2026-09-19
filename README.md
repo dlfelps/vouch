@@ -13,6 +13,10 @@ the PDF.
 It is built for people and for LLM agents writing papers: the correct number is
 always cheaper to use than a guessed one.
 
+**New here? Start with the [tutorial](examples/tutorial/README.md):** a
+two-second experiment and a paper draft, taken step by step to a PDF whose values,
+table and figure all come from the code.
+
 ```console
 $ pip install -e .          # from a clone; Python ≥ 3.10, no dependencies
 $ vouch init                # finds your paper, writes vouch.toml, copies vouch.sty
@@ -21,7 +25,8 @@ $ vouch init                # finds your paper, writes vouch.toml, copies vouch.
 The base install is everything, the MCP server included, with no dependencies
 (only `tomli` on Python 3.10). Extras: `.[pandas]` to record pandas DataFrames;
 `.[mcp]` installs nothing more (`vouch mcp` needs nothing); `.[test]` for the test
-suite, which includes the official MCP SDK to test `vouch mcp` against.
+suite, which includes the official MCP SDK to test `vouch mcp` against, and
+matplotlib for the tutorial.
 
 ## 1. Record
 

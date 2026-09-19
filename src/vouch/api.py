@@ -63,16 +63,19 @@ def _preview(items: list[str], n: int = 5) -> str:
     return head + (f", … (+{len(items) - n} more)" if len(items) > n else "")
 
 
-def _common_prefix(keys: list[str]) -> str:
-    if not keys:
-        return ""
-    parts = [k.split(".") for k in keys]
-    out = []
-    for segs in zip(*parts):
-        if len(set(segs)) != 1:
-            break
-        out.append(segs[0])
-    return ".".join(out)
+def _no_desc_message(keys: list[str]) -> str:
+    """One warning for every key recorded without a description, grouped the way a
+    ``[metrics]`` pattern would describe them: by the last key segment."""
+    if len(keys) == 1:
+        return f"{keys[0]} recorded without desc; add desc= or a [metrics] pattern in vouch.toml"
+    by_leaf: dict[str, int] = {}
+    for k in keys:
+        leaf = k.rsplit(".", 1)[-1]
+        by_leaf[leaf] = by_leaf.get(leaf, 0) + 1
+    groups = [f"*.{leaf} ({n})" for leaf, n in sorted(by_leaf.items(), key=lambda kv: -kv[1])]
+    first = max(by_leaf, key=by_leaf.get)
+    return (f"{len(keys)} key(s) recorded without desc: {_preview(groups, 4)}; describe each "
+            f"family once in vouch.toml, e.g. [metrics] \"*.{first}\" = {{ desc = \"...\" }}")
 
 
 # ---------------------------------------------------------------------------
@@ -449,11 +452,7 @@ class Run:
             _warn(f"{len(notes.nonfinite)} non-finite value(s) recorded (check will flag them): "
                   + _preview(notes.nonfinite))
         if notes.no_desc:
-            where = _common_prefix(notes.no_desc)
-            _warn(f"{len(notes.no_desc)} key(s) recorded without desc"
-                  + (f" ({where}.*)" if where and len(notes.no_desc) > 1 else f" ({notes.no_desc[0]})"
-                     if len(notes.no_desc) == 1 else "")
-                  + "; add desc= or a [metrics] pattern in vouch.toml")
+            _warn(_no_desc_message(notes.no_desc))
 
     # -- claims, inputs, artifacts, tables, params -----------------------------
 
@@ -896,35 +895,74 @@ def _code_info(cfg: Config, first_party: list[str]) -> dict:
     return info
 
 
-_dists_cache: dict | None = None
+_dist_cache: dict[str, dict[str, str]] = {}      # import name -> {distribution: version}
 
 
-def _packages_distributions() -> dict:
-    """import name -> distribution names; scanning every installed dist costs ~0.5 s,
-    so it happens once per process however many runs a sweep records."""
-    global _dists_cache
-    if _dists_cache is None:
-        from importlib import metadata
-        _dists_cache = metadata.packages_distributions()
-    return _dists_cache
+def _top_levels(dist) -> set[str] | None:
+    """The import names a distribution provides, from its top_level.txt or RECORD.
+    Reads one file and never touches the files it lists: ``packages_distributions()``
+    stats every installed file, which takes seconds in a large environment. None if
+    the distribution doesn't say (an editable install, for one)."""
+    text = dist.read_text("top_level.txt")
+    if text:
+        return {ln.strip().replace("/", ".").split(".")[0] for ln in text.splitlines()
+                if ln.strip()}
+    tops = set()
+    for line in (dist.read_text("RECORD") or "").splitlines():
+        first = line.split(",", 1)[0].strip().strip('"').split("/", 1)[0]
+        if not first or first.startswith(("..", "__")) or \
+                first.endswith((".dist-info", ".egg-info", ".data", ".pth")):
+            continue
+        tops.add(first.split(".", 1)[0])
+    return tops or None
+
+
+def _distributions(tops: set[str]) -> dict[str, dict[str, str]]:
+    """{import name: {distribution: version}} for the given top-level import names.
+
+    A distribution named like the import (numpy, matplotlib) is found directly; the
+    rest (PIL, dateutil, yaml) cost one pass over the installed distributions. Cached
+    for the process, so a sweep that records many runs pays once."""
+    from importlib import metadata
+    out: dict[str, dict[str, str]] = {}
+    unresolved: set[str] = set()
+    for top in tops:
+        if top in _dist_cache:
+            out[top] = _dist_cache[top]
+            continue
+        try:
+            dist = metadata.distribution(top)
+        except (metadata.PackageNotFoundError, ValueError):
+            unresolved.add(top)
+            continue
+        provided = _top_levels(dist)
+        if provided is None or top in provided:
+            md = dist.metadata                        # parsed once: name and version
+            out[top] = _dist_cache[top] = {md["Name"]: md["Version"]}
+        else:
+            unresolved.add(top)
+    if unresolved:
+        found: dict[str, dict[str, str]] = {t: {} for t in unresolved}
+        for dist in metadata.distributions():
+            hits = unresolved & (_top_levels(dist) or set())
+            if hits:
+                md = dist.metadata
+                for t in hits:
+                    found[t][md["Name"]] = md["Version"]
+        for t, dists in found.items():
+            out[t] = _dist_cache[t] = dists
+    return out
 
 
 def _env_info(cfg: Config, first_party_files: list[str]) -> dict:
     packages: dict[str, str] = {}
     try:
-        from importlib import metadata
-        dists = _packages_distributions()
         stdlib = set(getattr(sys, "stdlib_module_names", ()))
         first_party = {Path(cfg.rel(f)).parts[0].removesuffix(".py") for f in first_party_files}
         tops = {name.split(".", 1)[0] for name in list(sys.modules)}
-        for top in sorted(tops):
-            if top.startswith("_") or top in stdlib or top in first_party:
-                continue
-            for dist in dists.get(top, ()):
-                try:
-                    packages[dist] = metadata.version(dist)
-                except metadata.PackageNotFoundError:
-                    pass
+        wanted = {t for t in tops if not (t.startswith("_") or t in stdlib or t in first_party)}
+        for dists in _distributions(wanted).values():
+            packages.update({d: v for d, v in dists.items() if d and v})
     except Exception:  # environment introspection must never fail a run
         pass
     return {"python": platform.python_version(), "platform": sysconfig.get_platform(),

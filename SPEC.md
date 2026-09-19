@@ -578,6 +578,8 @@ Tracking starts at `import vouch` (see §8.2 for the mechanism). For complete co
 
 **Figure tracking.** When matplotlib is imported, before or after vouch, `Figure.savefig` is wrapped (and with it `plt.savefig`). Every figure saved to a path while vouch is recording becomes a figure artifact of the active run, with the file:line of the `savefig` call. A path without an extension gets the one matplotlib adds (`format=` or `rcParams["savefig.format"]`). Saving to a file object is not tracked.
 
+A tracked figure is **saved reproducibly**, because its hash is how vouch knows whether it changed. matplotlib stamps the current time into pdf, svg and ps files, and random ids into svg, so re-running an unchanged plot would otherwise produce a "changed" figure every time. vouch leaves the date out (`metadata={"CreationDate": None}` for pdf, `{"Date": None}` for svg), uses a fixed date for ps/eps, which can't omit it, and fixes `svg.hashsalt`. An explicit `metadata=` entry, `SOURCE_DATE_EPOCH`, `svg.hashsalt` or a call's own `backend=` takes precedence.
+
 vouch never imports matplotlib. If it is already loaded, it is patched at `import vouch`. Otherwise a finder on `sys.meta_path` waits for `matplotlib.figure` to be imported, patches it, and removes itself. The CLI (and so `vouch build` evaluating `vouch_values.py`) records no figures.
 
 ### 4.8 Run record format (`.vouch/runs/<id>.json`)
@@ -1137,7 +1139,9 @@ A number can be updated correctly and still leave its sentence wrong ("the best 
    → fix any sentence that is now wrong, then: vouch ack <key>…  or  vouch review
    ```
 
-2. **`vouch check`** keeps listing pending changes until they are acknowledged, so a notice can't scroll away. With `--strict` (CI, agents, optionally pre-commit) they block.
+   The most important changes come first: claims that stopped holding (labelled `NOW FALSE`), then suspicious moves, then ordinary changes, then figures. Cells cited only through a `\vouchtable` are shown under their table, one line per cell, with the table's `\vouchtable` line once; a re-run that moves a whole table stays readable.
+
+2. **`vouch check`** keeps listing pending changes until they are acknowledged, so a notice can't scroll away. With `--strict` (CI, agents, optionally pre-commit) they block. A table's changed cells are one warning, and a claim that became false is left to its `false-claim` error rather than listed twice.
 3. **The PDF** highlights pending values, and their tooltips say what they were (§7.5).
 4. **`vouch changes [--json | --md FILE]`** gives the full pending list. `--md` writes a shareable review report, e.g. for co-authors.
 5. **The `on_change` hook.** If `changes.on_change` is set, `vouch build` runs that command once per newly detected batch and sends the changes as JSON on stdin (same schema as `vouch changes --json`). Use it for desktop notifications, a Slack webhook, email, and so on. Which changes have already been notified is tracked in `.vouch/cache/notified.json`, so a change never notifies twice.
@@ -1150,6 +1154,8 @@ $ vouch review                        # interactive: one change at a time
   [a]ck  [s]kip  [o]pen main.tex:118  [d]etails  [q]uit > o      # opens $EDITOR / `code -g`
 $ vouch ack cifar.vit.acc --why "bug fix in augmentation; text updated in §4.2"
 $ vouch ack --all --why "re-ran all with 5 seeds"
+$ vouch ack main                      # a table: every changed cell of it
+$ vouch ack 'cifar.*'                 # a glob
 ```
 
 Acknowledging moves the baseline and appends an event to `.vouch/history.jsonl` recording the key, old → new, who, when and why. That file is a permanent changelog of the paper's numbers. `vouch ack` and `vouch accept` rebuild the generated files themselves, so highlights and tooltips update without a separate `vouch build`. Acknowledgment is a human action; agents surface changes and fix text, but don't acknowledge without approval (§13.5).
@@ -1199,7 +1205,7 @@ There is exactly one CSV per paper, covering every cited key. This was decided i
 |---|---|---|---|
 | `config` | error | invalid `vouch.toml` or tex graph | message names the file and line |
 | `store-edited` | error | a run record's or `derived.json`'s `record_hash` doesn't match its content | re-run the experiment (or `vouch build`); never hand-edit `.vouch/` |
-| `derive-error` | error | a values module failed to import, or a definition raised, read an unknown key, read a failed definition, returned the wrong type, or was defined twice; the message names the file:line | fix the definition, then `vouch build` |
+| `derive-error` | error | a values module failed to import, or a definition raised, read an unknown key, read a failed definition, returned the wrong type, or was defined twice; the message names the file:line. A cited key whose definition failed is also reported where the paper cites it (not as `unknown-key`) | fix the definition, then `vouch build` |
 | `unknown-key` | error | a cited key exists nowhere (did-you-mean suggestions included) | fix the key, or `record`/`derive`/`expect` it |
 | `key-conflict` | error | two sources produce one key | rename one |
 | `out-of-sync` | error | generated files or `derived.json` differ from what `build` would write. Run freshness is excluded from the comparison: it depends on the working tree, not on what was recorded, so it lives on separate `\vouch@state` lines (read by tooltips) and in the CSV's freshness column. A code edit is reported once, as `stale`, never also as `out-of-sync`. | `vouch build` |
@@ -1259,8 +1265,8 @@ Every command accepts `--json`, which emits a stable, versioned envelope (§13.6
 | `vouch build [--no-notify]` | Evaluates `vouch_values.py`, renders the values file, tables (and the provenance CSV if `provenance_csv` is set) and catalog, refreshes annotations if enabled, auto-acknowledges new, `hidden` and `reformatted` changes, and prints the change block (§9.3). |
 | `vouch check [--strict] [--quiet] [--json] [--paper FILE]` | The gate (§11). Read-only. Target: under 1 s. |
 | `vouch status` | Freshness per run, git-status style, with the exact re-run command and the units that changed. |
-| `vouch ls [PATTERN] [--cited\|--uncited] [--fields …]` | Keys with rendered value, description, run, freshness and citation count. |
-| `vouch trace KEY \| SCRIPT \| FILE:LINE` | The full chain for a key; the values a script produces and where they're cited; or the values cited on a line of tex. |
+| `vouch ls [PATTERN] [--cited\|--uncited] [--all] [--json]` | Keys with rendered value, description, run, freshness and citation count, numbers inside keys in numeric order. A mean ± std's subfields (`.mean`, `.std`, …) are listed only when cited or with `--all`; `--json` always has every key. |
+| `vouch trace KEY \| FIGURE \| SCRIPT \| FILE:LINE` | The full chain for a key; for a figure, the run and `savefig` line that produced it, whether the file is still what that run saved, and where the paper includes it; the values a script produces and where they're cited; or the values cited on a line of tex. |
 | `vouch explore [--port N] [--open] [--html FILE] [--json]` | Browse every recorded value in a local web page, grouped by script and function, and copy the LaTeX that cites it (§12.2). |
 | `vouch search "WORDS" [--limit N]` | Ranked lookup (§13.2). |
 | `vouch cite KEY [--fmt F]` | The snippet to paste, plus its rendering (§13.2). |
@@ -1269,7 +1275,7 @@ Every command accepts `--json`, which emits a stable, versioned envelope (§13.6
 | `vouch todo` | Pending `expect()` keys with their producer commands. |
 | `vouch changes [--json\|--md FILE]` | Pending changes to cited values, with the citing sentences. |
 | `vouch review` | Interactive review of pending changes. |
-| `vouch ack KEY… \| --all \| --run RUN [--why TEXT]` | Acknowledge changes. |
+| `vouch ack KEY… \| --all \| --run RUN [--why TEXT]` | Acknowledge changes. A KEY may be a glob, or a table (every changed cell of it). |
 | `vouch accept RUN --why TEXT` | Record a reviewed staleness (§8.5). |
 | `vouch export --csv PATH [--all] [--json]` | Provenance table on demand. |
 | `vouch catalog` | Regenerate `.vouch/CATALOG.md`. |
@@ -1775,10 +1781,10 @@ src/vouch/
   tex/annotate.py    managed % vouch: comments
   tex/emit.py        values file, tables
   data/vouch.sty     schema/v1.json
-tests/  examples/minimal/
+tests/  examples/minimal/  examples/tutorial/{start,finished}/   (the tutorial: README.md)
 ```
 
-Tooling: uv, pytest, argparse (no click, to keep the core dependency-free). The base install has no dependencies (`tomli` on Python 3.10) and includes everything, `vouch mcp` too. Extras: `vouch[pandas]` (DataFrames); `vouch[mcp]`, empty, reserved for a transport that would need a package; `vouch[test]` (pytest, pandas, and the official `mcp` SDK, used only to test the server against the official client).
+Tooling: uv, pytest, argparse (no click, to keep the core dependency-free). The base install has no dependencies (`tomli` on Python 3.10) and includes everything, `vouch mcp` too. Extras: `vouch[pandas]` (DataFrames); `vouch[mcp]`, empty, reserved for a transport that would need a package; `vouch[test]` (pytest, pandas, the official `mcp` SDK, used only to test the server against the official client, and matplotlib, to run the tutorial).
 
 ### 19.2 Milestones
 
@@ -1832,6 +1838,7 @@ Tooling: uv, pytest, argparse (no click, to keep the core dependency-free). The 
   6. Flip a claim: `false-claim`.
   7. Hand-edit the run JSON: `store-edited`.
   8. Add `12.5\%`: `no-source` under `--strict`.
+- **Tutorial (`examples/tutorial/`):** `tests/test_tutorial.py` takes the tutorial's steps in a fresh copy of `start/`: the plain experiment, `vouch init`, the three added lines (and only those: the test diffs `start/` against `finished/`), `[metrics]`, the paper and `vouch_values.py`, `check --strict`, the K = 1 change and its report, the revert, and the PDF. Every key the tutorial's text cites must exist, and its table of renderings must match what vouch prints.
 - **CLI:** golden outputs for `check`, `status`, `trace` and `changes`, with ASCII fallback. `--json` output validates against `schema/v1.json`.
 - **LLM layer:**
   - `search` ranks the intended key first on a fixture of natural-language queries.

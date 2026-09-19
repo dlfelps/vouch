@@ -1,0 +1,69 @@
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{vouch}
+
+\title{When Does a Neighbour Beat a Line?\\[2pt] \large A toy learning-curve study}
+\author{The vouch tutorial}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We compare a linear model with $k$-nearest neighbours as the training set grows.
+The linear model is better with little data, but $k$-NN has the higher accuracy
+from \vouch{crossover} training points on and finishes \vouch{gap} points ahead.
+\end{abstract}
+
+\section{Setup}
+
+Points are drawn uniformly from the square $[-1, 1]^2$ and labelled by which side
+of a sine curve they fall on. We flip \vouch[.0pct]{experiment.param.noise} of the
+labels at random, so no classifier can exceed \vouch{best_possible} test accuracy.
+We train logistic regression and a \vouch{experiment.param.k}-nearest-neighbour
+classifier on \vouch{experiment.param.sizes} points, test each on
+\vouch{experiment.param.n_test} fresh points, and repeat every configuration with
+\vouch{experiment.param.seeds} seeds.
+
+\section{Results}
+
+Figure~\ref{fig:curve} and Table~\ref{tab:curve} show test accuracy as the
+training set grows. \vouchclaim{linear_wins_small}{With the fewest training points
+the linear model is better}: \vouch{evaluate.linear.n_train_20.acc} against
+\vouch{evaluate.knn.n_train_20.acc} for $k$-NN, whose vote is then dominated by
+distant points. \vouchclaim{knn_wins_large}{With the most, $k$-NN is better}: it
+reaches \vouch{evaluate.knn.n_train_640.acc}, against
+\vouch{evaluate.linear.n_train_640.acc} for the linear model, and varies by only
+\vouch{evaluate.knn.n_train_640.acc.std} across seeds.
+
+The linear model lacks flexibility, not data: with the most training points its
+training accuracy, \vouch{evaluate.linear.n_train_640.train_acc}, is no higher than
+its test accuracy. A straight line cannot follow the sine boundary, while $k$-NN
+can, and keeps improving towards the \vouch{best_possible} ceiling.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.75\linewidth]{figures/learning_curve.pdf}
+  \caption{Test accuracy against training set size, mean $\pm$ std over
+    \vouch{experiment.param.seeds} seeds. The dashed line is the best possible
+    accuracy, \vouch{best_possible}.}
+  \label{fig:curve}
+\end{figure}
+
+\begin{table}[t]
+  \centering
+  \caption{Test accuracy by training set size, mean $\pm$ std over
+    \vouch{experiment.param.seeds} seeds. The gap is $k$-NN minus the linear
+    model, in percentage points.}
+  \label{tab:curve}
+  \begin{tabular}{rccr}
+    \toprule
+    Training points & Linear & $k$-NN & Gap \\
+    \midrule
+    \vouchtable{learning_curve}
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\end{document}

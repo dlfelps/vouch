@@ -36,7 +36,7 @@ from . import changes as ch
 from .config import Config
 from .index import Entry, Index, source_runs
 from .render import Options, RenderError, render, tex_escape
-from .values import STAT_FIELDS
+from .values import STAT_FIELDS, natural_key
 
 PAGE = Path(__file__).parent / "data" / "explore.html"
 DATA_SLOT = "/*__VOUCH_DATA__*/null"
@@ -244,7 +244,7 @@ class _Builder:
             g["line"] = min(g["line"], line) if line else g["line"]    # where it first appears
             return g
 
-        for key in sorted(self.idx.entries):
+        for key in sorted(self.idx.entries, key=natural_key):
             e = self.idx.entries[key]
             if e.kind in ("stat-field", "element", "table-cell"):
                 continue

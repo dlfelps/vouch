@@ -78,7 +78,25 @@ def _print_issue(i, indent: str = "  ") -> None:
 # change blocks
 # ---------------------------------------------------------------------------
 
+def _now_false(c) -> bool:
+    return c.new.kind == "claim" and not (c.new.raw or {}).get("holds", True)
+
+
+def _change_rank(c) -> int:
+    """What to read first: claims that stopped holding, then suspicious moves."""
+    if _now_false(c):
+        return 0
+    return {"suspicious": 1, "changed": 2, "figure-changed": 3}.get(c.cls, 4)
+
+
+def _old_new(c) -> tuple[str, str]:
+    old = " | ".join(ch.readable(p) for p in (c.old or {}).get("plain", [])) or "?"
+    new = " | ".join(ch.readable(p) for p in c.new.plain) or "?"
+    return old, new
+
+
 def print_changes(changes: list, *, heading: bool = True) -> None:
+    from .values import natural_key
     pending = [c for c in changes if c.pending]
     if not pending:
         return
@@ -86,12 +104,27 @@ def print_changes(changes: list, *, heading: bool = True) -> None:
         n = len(pending)
         C.out("")
         C.out(f"{n} CHANGED VALUE{'S' if n > 1 else ''} — re-read the sentences below")
+    # cells cited only through a \vouchtable are shown together, under their table
+    tables: dict[str, list] = {}
+    single = []
     for c in pending:
+        via = {w.table for w in c.citations}
+        if len(via) == 1 and None not in via:
+            tables.setdefault(via.pop(), []).append(c)
+        else:
+            single.append(c)
+    items = [(_change_rank(c), natural_key(c.key), c) for c in single]
+    items += [(min(_change_rank(c) for c in cells), natural_key(t), (t, cells))
+              for t, cells in tables.items()]
+    for _, _, item in sorted(items, key=lambda x: (x[0], x[1])):
         C.out("")
-        label = {"suspicious": "SUSPICIOUS", "changed": "CHANGED",
-                 "figure-changed": "FIGURE"}[c.cls]
-        old = " | ".join(ch.readable(p) for p in (c.old or {}).get("plain", [])) or "?"
-        new = " | ".join(ch.readable(p) for p in c.new.plain) or "?"
+        if isinstance(item, tuple):
+            _print_table_changes(*item)
+            continue
+        c = item
+        label = "NOW FALSE" if _now_false(c) else {"suspicious": "SUSPICIOUS", "changed": "CHANGED",
+                                                   "figure-changed": "FIGURE"}[c.cls]
+        old, new = _old_new(c)
         extra = "; ".join(x for x in (ch.describe_delta(c), "; ".join(c.reasons)) if x)
         if c.cls == "figure-changed":
             C.out(f"  {label:<10}  {c.key}   the figure file changed")
@@ -101,6 +134,28 @@ def print_changes(changes: list, *, heading: bool = True) -> None:
             C.out(f"    {w.file}:{w.line}  \"{w.sentence}\"")
     C.out("")
     C.out("  → fix any sentence that is now wrong, then: vouch ack <key>…  or  vouch review")
+
+
+def _print_table_changes(table: str, cells: list) -> None:
+    from .values import natural_key
+    cells = sorted(cells, key=lambda c: natural_key(c.key))
+    flagged = sum(c.cls == "suspicious" for c in cells)
+    label = "SUSPICIOUS" if flagged else "CHANGED"
+    C.out(f"  {label:<10}  table {table}   {len(cells)} cell{'s' if len(cells) > 1 else ''} "
+          f"changed" + (f", {flagged} suspicious" if flagged else ""))
+    names = [c.key[len(table) + 1:] if c.key.startswith(table + ".") else c.key for c in cells]
+    w = max(len(n) for n in names)
+    for name, c in zip(names, cells):
+        old, new = _old_new(c)
+        why = f"   ({'; '.join(c.reasons)})" if c.cls == "suspicious" and c.reasons else ""
+        C.out(f"    {'!' if c.cls == 'suspicious' else ' '} {name:<{w}}  {old} → {new}{why}")
+    seen = []
+    for c in cells:
+        for cit in c.citations:
+            if (cit.file, cit.line) not in [(s.file, s.line) for s in seen]:
+                seen.append(cit)
+    for cit in seen[:8]:
+        C.out(f"    {cit.file}:{cit.line}  \"{cit.sentence}\"")
 
 
 # ---------------------------------------------------------------------------
@@ -361,7 +416,8 @@ def cmd_ls(args) -> int:
                         counts[ck] = counts.get(ck, 0) + 1
     rendered = ctx.plans[0].rendered if ctx.plans else {}
     rows = []
-    for key in sorted(ctx.idx.entries):
+    from .values import natural_key
+    for key in sorted(ctx.idx.entries, key=natural_key):
         e = ctx.idx.entries[key]
         if not _match(args.pattern, key):
             continue
@@ -387,10 +443,20 @@ def cmd_ls(args) -> int:
     if not rows:
         C.out("no matching keys")
         return EXIT_OK
+    hidden = 0
+    if not args.all:        # a mean ± std's .mean/.std/.n/... under it, unless cited or asked for
+        listed = {r["key"] for r in rows}
+        shown = [r for r in rows if not (r["kind"] == "stat-field" and not r["cited"]
+                                         and r["key"].rsplit(".", 1)[0] in listed)]
+        hidden, rows = len(rows) - len(shown), shown
     w = min(max(len(r["key"]) for r in rows), 40)
+    vw = min(max(len(r["value"]) for r in rows), 24)
     for r in rows:
         desc = r["desc"] if len(r["desc"]) <= 60 else r["desc"][:57] + "..."
-        C.out(f"{r['key']:<{w}}  {r['value']:<18}  {r['state']:<8} cited {r['cited']:<3} {desc}")
+        C.out(f"{r['key']:<{w}}  {r['value']:<{vw}}  {r['state']:<8} cited {r['cited']:<3} {desc}")
+    if hidden:
+        C.out(f"({hidden} subfields of mean ± std values not shown: .mean .std .n .ci95 .min "
+              f".max; `vouch ls --all` lists them)")
     return EXIT_OK
 
 
@@ -428,6 +494,19 @@ def cmd_trace(args) -> int:
     # a path relative to the current directory, or to the project root
     cands = {cfg.rel(target), Path(target).as_posix().removeprefix("./")}
     rel = next((c for c in cands if (cfg.root / c).exists()), cfg.rel(target))
+    from .assist import figure_info
+    fig = figure_info(ctx, rel)
+    if fig is not None:
+        C.out(f"{rel}   figure")
+        C.out(f"  saved     {fig['saved_at'] or '-'}   in run {fig['run']} ({fig['state']})")
+        C.out(f"  command   {fig['run_command'] or '-'}")
+        C.out(f"  when      {str(fig['started'] or '')[:16].replace('T', ' ')} UTC"
+              + (f" · git {fig['git'][:7]}" if fig.get("git") else ""))
+        C.out(f"  file      {fig['file']}")
+        if fig["rerun"]:
+            C.out(f"  re-run    {fig['rerun']}")
+        C.out("  cited     " + (", ".join(fig["cited_at"]) or "not included by the paper"))
+        return EXIT_OK
     runs = [r for r, rec in sorted(idx.runs.items())
             if rec.get("entry") == rel or any(u.split("::")[0] == rel
                                               for u in (rec.get("code") or {}).get("units", {}))]
@@ -441,7 +520,7 @@ def cmd_trace(args) -> int:
                 C.out(f"  {k}" + (f"   cited at {', '.join(where)}" if where else "   (not cited)"))
         return EXIT_OK
     sugg = idx.suggest(target)
-    C.err(f"vouch trace: {target!r} is not a key, a tex file:line, or a file any run used"
+    C.err(f"vouch trace: {target!r} is not a key, a tex file:line, a figure or a file any run used"
           + (f" (did you mean {', '.join(sugg)}?)" if sugg else ""))
     return EXIT_FAIL
 
@@ -959,8 +1038,12 @@ def cmd_ack(args) -> int:
         chosen = [c for c in pending if c.new.source == f"run:{args.run}"]
     else:
         wanted = set(args.keys)
-        chosen = [c for c in pending if c.key in wanted]
-        unknown = wanted - {c.key for c in chosen}
+
+        def hits(c, w: str) -> bool:        # a key, a glob, or a table: all its changed cells
+            return c.key == w or fnmatch.fnmatchcase(c.key, w) or \
+                any(cit.table == w for cit in c.citations)
+        chosen = [c for c in pending if any(hits(c, w) for w in wanted)]
+        unknown = {w for w in wanted if not any(hits(c, w) for c in chosen)}
         if unknown:
             C.err(f"vouch ack: no pending change for {', '.join(sorted(unknown))} "
                   f"(see `vouch changes`)")
@@ -1091,7 +1174,9 @@ def make_parser() -> argparse.ArgumentParser:
     sp.add_argument("pattern", nargs="?", help="substring or glob (e.g. 'cifar.*.acc')")
     sp.add_argument("--cited", action="store_true", help="only keys the paper cites")
     sp.add_argument("--uncited", action="store_true", help="only keys the paper doesn't cite")
-    sp.add_argument("--json", action="store_true")
+    sp.add_argument("--all", action="store_true",
+                    help="also list each mean ± std's subfields (.mean, .std, .n, ...)")
+    sp.add_argument("--json", action="store_true", help="every key, subfields included")
 
     sp = add("explore", cmd_explore, "browse recorded values in a local web page; copy the LaTeX")
     sp.add_argument("--port", type=int, default=8765, help="port on 127.0.0.1 (default 8765)")
@@ -1164,7 +1249,8 @@ def make_parser() -> argparse.ArgumentParser:
     sp.add_argument("--md", metavar="FILE", help="write a shareable Markdown review report")
 
     sp = add("ack", cmd_ack, "acknowledge changed values after re-reading their sentences")
-    sp.add_argument("keys", nargs="*")
+    sp.add_argument("keys", nargs="*",
+                    help="keys, globs ('learning_curve.*'), or a table: every changed cell of it")
     sp.add_argument("--all", action="store_true", help="every pending change")
     sp.add_argument("--run", help="every pending change from this run")
     sp.add_argument("--why", default="acknowledged", help="recorded with the acknowledgment")

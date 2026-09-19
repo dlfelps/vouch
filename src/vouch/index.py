@@ -348,6 +348,17 @@ class Index:
         """True if ``key`` is defined in vouch_values.py but not evaluated yet."""
         return any(key == k or key.startswith(k + ".") for k in self.unevaluated)
 
+    def failed_derivation(self, key: str) -> str | None:
+        """Where the definition of ``key`` failed (``file:line``), if vouch_values.py
+        defines it but could not compute it; None otherwise."""
+        for p in (self.derived_doc or {}).get("problems") or []:
+            s = p.get("subject")
+            if p.get("check") == "derive-error" and s and (key == s or key.startswith(s + ".")):
+                if p.get("file") and p.get("line"):
+                    return f"{p['file']}:{p['line']}"
+                return p.get("file") or "vouch_values.py"
+        return None
+
     def suggest(self, key: str, n: int = 3) -> list[str]:
         import difflib
         return difflib.get_close_matches(key, list(self.entries), n=n, cutoff=0.6)
