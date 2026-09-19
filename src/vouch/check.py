@@ -133,6 +133,16 @@ def collect(ctx: Context) -> list[Issue]:
         for r in st.of("absent-input", "absent-artifact"):
             issues.append(Issue("absent", "warning", f"run {run}: {r.subject} is not on disk, so it "
                                 "cannot be re-verified", subject=f"run:{run}"))
+        imp = (st.recorded or {}).get("imported")
+        if imp:
+            producers = imp.get("producers") or []
+            issues.append(Issue("imported", "info" if producers else "warning",
+                                f"run {run} was imported from {imp.get('file')}, not recorded live"
+                                + ("" if producers else "; no --producer was declared, so nothing "
+                                   "ties its numbers to code"), subject=f"run:{run}",
+                                fix=None if producers else
+                                "re-record it by running the producer under vouch (or re-import "
+                                "with --producer)", fix_kind="human"))
         git = (st.recorded or {}).get("git") or {}
         if git.get("dirty"):
             issues.append(Issue("dirty-tree-at-record", "info", f"run {run} was recorded with "

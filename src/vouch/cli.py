@@ -429,7 +429,13 @@ def _trace_key(ctx, key: str, args, indent: str = "") -> int:
     if e.run:
         rec = idx.runs.get(e.run) or {}
         st = ctx.states.get(e.run)
-        out.append(f"  recorded  {e.site or '-'}   in run {e.run}")
+        imp = rec.get("imported")
+        if imp:
+            out.append(f"  imported  from {imp.get('file')} into run {e.run} (not recorded live)"
+                       + (f"; producers {', '.join(imp.get('producers') or [])}"
+                          if imp.get("producers") else "; no producer declared"))
+        else:
+            out.append(f"  recorded  {e.site or '-'}   in run {e.run}")
         if e.extra.get("call"):
             from .track import call_text, per_call_text, timing_text
             call = e.extra["call"]
@@ -442,7 +448,9 @@ def _trace_key(ctx, key: str, args, indent: str = "") -> int:
                 out.append(f"  each call {each}")
             if call.get("sites"):
                 out.append(f"  called at {', '.join(call['sites'][:6])}")
-        out.append(f"  command   {' '.join(rec.get('command') or [])}")
+        out.append(f"  command   {' '.join(rec.get('command') or []) or '-'}"
+                   + ("   (declared, not observed)" if (rec.get("imported") or {}).get("command")
+                      else ""))
         git = rec.get("git") or {}
         pk = rec.get("env", {}).get("packages", {})
         out.append(f"  when      {str(rec.get('started', ''))[:16].replace('T', ' ')} UTC · "
@@ -499,6 +507,73 @@ def cmd_explore(args) -> int:
               f"a snapshot -- `vouch explore` serves a live view")
         return EXIT_OK
     serve(cfg, port=args.port, open_browser=args.open, out=C.out)
+    return EXIT_OK
+
+
+def cmd_sync(args) -> int:
+    from .build import BuildError, plan
+    from .tex.annotate import annotate
+    try:
+        cfg = _config(args)
+        ctx = plan(cfg, check_env=False)
+        changed = annotate(ctx, strip=args.strip)
+    except (BuildError, ConfigError, FileNotFoundError, OSError) as exc:
+        return _fatal("sync", exc)
+    verb = "stripped annotations from" if args.strip else "annotated"
+    if changed:
+        C.out(f"vouch sync: {verb} {', '.join(cfg.rel(p) for p in changed)}")
+    else:
+        C.out("vouch sync: nothing to change")
+    if not args.strip and not cfg.get("latex", "annotate", False):
+        C.out("  (set [latex] annotate = true to have every `vouch build` keep them current)")
+    return EXIT_OK
+
+
+def cmd_run(args) -> int:
+    from .runner import RunError, run_command
+    cmd = list(args.cmd)
+    if not cmd:
+        return _fatal("run", ValueError("no command: vouch run ID [--dep P]... -- CMD ..."))
+    argv = [args.id]
+    for flag, vals in (("--dep", args.dep), ("--input", args.input), ("--out", args.out)):
+        for v in vals or []:
+            argv += [flag, v]
+    for flag, v in (("--values", args.values), ("--prefix", args.prefix), ("--row-key", args.row_key)):
+        if v:
+            argv += [flag, v]
+    if args.stats:
+        argv.append("--stats")
+    argv += ["--", *cmd]
+    try:
+        cfg = _config(args)
+        return run_command(cfg, args.id, cmd, deps=args.dep or [], inputs=args.input or [],
+                           outs=args.out or [], values=args.values, prefix=args.prefix,
+                           row_key=args.row_key, stats=args.stats, argv=argv, out=C.out)
+    except (RunError, ConfigError, OSError, ValueError) as exc:
+        return _fatal("run", exc)
+
+
+def cmd_import(args) -> int:
+    from .runner import RunError, import_file
+    try:
+        cfg = _config(args)
+        rec = import_file(cfg, args.file, args.run, prefix=args.prefix, producers=args.producer or [],
+                          command=args.command, row_key=args.row_key, stats=args.stats)
+    except (RunError, ConfigError, OSError, ValueError) as exc:
+        return _fatal("import", exc)
+    vals = rec["values"]
+    described = sum(1 for k, v in vals.items() if v.get("desc") or cfg.metric_defaults(k).get("desc"))
+    code = rec["code"]
+    n_files = len(code["files"]) + len([p for p in rec["inputs"] if p != rec["imported"]["file"]])
+    C.out(f"imported {len(vals)} value(s) into run {rec['run']}"
+          + (f" (prefix {args.prefix})" if args.prefix else "")
+          + f" · granularity: declared ({n_files} file{'s' if n_files != 1 else ''})")
+    C.out(f"  described: {described}/{len(vals)} (desc= or [metrics] patterns)")
+    if not args.producer:
+        C.out("  ! no --producer: nothing ties these numbers to code; check will warn until they "
+              "are re-recorded by a real run")
+    C.out("  note: imported, not recorded live; freshness tracks the declared producer files "
+          "and the results file")
     return EXIT_OK
 
 
@@ -728,6 +803,29 @@ def make_parser() -> argparse.ArgumentParser:
     sp.add_argument("target")
     sp.add_argument("--code", action="store_true", help="list every code unit")
 
+    sp = add("sync", cmd_sync, "write each cited value into a trailing % vouch: comment")
+    sp.add_argument("--strip", action="store_true", help="remove every annotation")
+
+    sp = add("run", cmd_run, "record a run of any command: vouch run ID [--dep P]... -- CMD ...")
+    sp.add_argument("id", help="the run id")
+    sp.add_argument("--dep", action="append", help="code the run depends on (file or directory)")
+    sp.add_argument("--input", action="append", help="data the run reads")
+    sp.add_argument("--out", action="append", help="a file the run writes (an artifact)")
+    sp.add_argument("--values", help="read values from this results file instead of $VOUCH_VALUES")
+    sp.add_argument("--prefix", help="prefix for every key")
+    sp.add_argument("--row-key", help="for tabular values: the column naming each row")
+    sp.add_argument("--stats", action="store_true", help="lists of numbers become Stats")
+    sp.set_defaults(cmd=[])              # everything after `--` (split off in main)
+
+    sp = add("import", cmd_import, "register an existing results file as a run")
+    sp.add_argument("file")
+    sp.add_argument("--run", required=True, help="the run id")
+    sp.add_argument("--prefix", help="prefix for every key")
+    sp.add_argument("--producer", action="append", help="code that produced the file (file or dir)")
+    sp.add_argument("--command", help="the command that produced it (declared, not observed)")
+    sp.add_argument("--row-key", help="for tabular files: the column naming each row")
+    sp.add_argument("--stats", action="store_true", help="lists of numbers become Stats")
+
     sp = add("accept", cmd_accept, "record that a stale run's result still stands")
     sp.add_argument("run")
     sp.add_argument("--why", required=True, help="why the measurement is unaffected")
@@ -774,7 +872,14 @@ def main(argv: list[str] | None = None) -> int:
     figures.disable()                  # nor any figure to record (vouch_values.py may plot)
     _utf8_when_piped()
     parser = make_parser()
+    argv = list(sys.argv[1:] if argv is None else argv)
+    cmd: list[str] = []
+    if argv[:1] == ["run"] and "--" in argv:         # vouch run ID [options] -- CMD ...
+        cut = argv.index("--")
+        argv, cmd = argv[:cut], argv[cut + 1:]
     args = parser.parse_args(argv)
+    if getattr(args, "command", None) == "run":
+        args.cmd = cmd
     if not getattr(args, "fn", None):
         parser.print_help()
         return EXIT_OK

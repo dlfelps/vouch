@@ -23,7 +23,7 @@ from typing import Any, Iterator
 
 SCHEMA = "vouch/1"
 
-TOP_ORDER = ("schema", "run", "status", "entry", "command", "params", "started",
+TOP_ORDER = ("schema", "run", "status", "entry", "command", "imported", "params", "started",
              "duration_s", "git", "env", "code", "inputs", "values", "claims",
              "artifacts", "tables", "record_hash")
 

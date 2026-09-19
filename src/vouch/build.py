@@ -132,7 +132,8 @@ def _provenance(idx: Index, e: Entry, with_site: bool = True) -> list[str]:
     if e.extra.get("derived"):
         return _derived_lines(e)
     rec = idx.runs.get(e.run or "") or {}
-    first = f"run {e.run}" + (f" | {e.site}" if with_site and e.site else "")
+    first = f"run {e.run}" + (" (imported)" if rec.get("imported") else "") \
+        + (f" | {e.site}" if with_site and e.site else "")
     cmd = " ".join(rec.get("command") or [])
     git = rec.get("git") or {}
     stamp = " | ".join(p for p in (_when(rec.get("started")),
@@ -224,6 +225,8 @@ def prov_latex(idx: Index, e: Entry, change: ch.Change | None = None) -> str:
     if call:
         lines += _call_latex(e, call)
     where = [r"run \texttt{" + esc(e.run or "?") + "}"]
+    if rec.get("imported"):
+        where.append("imported from " + r"\texttt{" + esc(str(rec["imported"].get("file"))) + "}")
     if e.site and e.kind != "param" and not call:          # a tracked value's site is above
         where.append(r"\texttt{" + esc(e.site) + "}")
     cmd = " ".join(rec.get("command") or [])
@@ -586,5 +589,8 @@ def build(cfg: Config, *, notify: bool = True) -> BuildResult:
     written, unchanged = write_files(ctx)
     if ctx.derived is not None and ctx.derived.written is not None:
         written.insert(0, ctx.derived.written)
+    if cfg.get("latex", "annotate", False):
+        from .tex.annotate import annotate
+        written += annotate(ctx)
     fresh, err = ch.notify(cfg, ctx.changes) if notify else ([], None)
     return BuildResult(ctx, written, unchanged, acked, fresh, err)

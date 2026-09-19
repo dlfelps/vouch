@@ -87,11 +87,33 @@ def _detect_main_file() -> str | None:
     which is exactly when an implicit run is written. The loader's ``path``
     survives, so it is the fallback.
     """
+    if _main_override:
+        return _main_override
     main = sys.modules.get("__main__")
     f = getattr(main, "__file__", None) or getattr(getattr(main, "__loader__", None), "path", None)
     if not f or not str(f).endswith(".py"):
         return None
     return os.path.abspath(f)
+
+
+_main_override: str | None = None
+
+
+def set_entry_script(path: str) -> None:
+    """The script being run, for ``python -m vouch.exec script.py`` (whose ``__main__``
+    is vouch's own module before and after the script runs)."""
+    global _main_override
+    _main_override = os.path.abspath(path)
+
+
+def use_project(cfg: Config) -> None:
+    """Record into ``cfg``'s project: for records made by the CLI (``vouch run``,
+    ``vouch import``), whose own entry script says nothing about the project."""
+    global _project_obj
+    proj = _Project.__new__(_Project)
+    proj.main_file, proj.root, proj.config = None, cfg.root, cfg
+    with _project_lock:
+        _project_obj = proj
 
 
 class _Project:
@@ -309,10 +331,11 @@ class Run:
     def record_all(self, values: Any, *, prefix: str | None = None, fmt: Any = None,
                    desc: Any = None, unit: Any = None, better: Any = None,
                    include: Any = None, exclude: Any = None, row_key: str | None = None,
-                   stats: bool = False, table: str | None = None) -> Any:
+                   stats: bool = False, table: str | None = None, _site_override: str | None = None
+                   ) -> Any:
         """Record every value in a dict, dataclass, DataFrame, rows or results file (SPEC §4.3)."""
         self._check_open()
-        site = _site()
+        site = _site_override or _site()
         notes = _Notes()
         data = values
         if isinstance(values, (str, os.PathLike)):
@@ -595,7 +618,10 @@ class Run:
 
     # -- the record ----------------------------------------------------------------
 
-    def _build_record(self) -> dict:
+    def _build_record(self, *, code: dict | None = None, command: list[str] | None = None,
+                      entry: str | None = None, env: dict | None = None) -> dict:
+        """The record to write. ``vouch run`` and ``vouch import`` pass what they know
+        better than this process: the code, command and environment of the real run."""
         cfg = self._config
         artifacts = {}
         for abspath, meta in sorted(self._artifacts.items()):
@@ -605,19 +631,19 @@ class Run:
                 _warn(f"artifact {rel} was declared but does not exist at the end of run {self.id}")
             artifacts[rel] = {"hash": h, "kind": meta["kind"], "site": meta["site"]}
         main_file = _project().main_file
-        first_party = _first_party_files(cfg)
+        first_party = _first_party_files(cfg) if code is None or env is None else []
         return {
             "schema": SCHEMA,
             "run": self.id,
             "status": "complete",
-            "entry": cfg.rel(main_file) if main_file else None,
-            "command": _command(cfg),
+            "entry": entry if code is not None else (cfg.rel(main_file) if main_file else None),
+            "command": command if command is not None else _command(cfg),
             "params": dict(sorted(self._params.items())),
             "started": self._started.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "duration_s": round(time.perf_counter() - self._t0, 1),
             "git": _git_info(cfg.root),
-            "env": _env_info(cfg, first_party),
-            "code": _code_info(cfg, first_party),
+            "env": env if env is not None else _env_info(cfg, first_party),
+            "code": code if code is not None else _code_info(cfg, first_party),
             "inputs": dict(sorted(self._inputs.items())),
             "values": dict(sorted(self._values.items())),
             "claims": dict(sorted(self._claims.items())),
@@ -910,6 +936,8 @@ def _env_info(cfg: Config, first_party_files: list[str]) -> dict:
 # ---------------------------------------------------------------------------
 
 def _default_run_id() -> str:
+    if os.environ.get("VOUCH_RUN"):              # set by `vouch run ID -- python ...`
+        return sanitize_key(os.environ["VOUCH_RUN"])
     f = _project().main_file
     if not f:
         _warn("recording outside a script (interactive or notebook) with no explicit run; "

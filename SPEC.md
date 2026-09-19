@@ -963,10 +963,10 @@ The scanner (ported from asqc's `audit/numbers/check.py`) builds the file graph 
 `\vouch{key}` keeps the source clean, but it hides the number from someone reading the `.tex`. With annotations on, `vouch build` (or `vouch sync` on demand) maintains a **managed trailing comment** on every source line that cites values:
 
 ```latex
-ResNet-50 reaches \vouch{cifar.resnet.acc} top-1 accuracy, \vouch{cifar.resnet_vs_vit.pts} points  % vouch: cifar.resnet.acc=93.2±0.4%, cifar.resnet_vs_vit.pts=2.0
+ResNet-50 reaches \vouch{cifar.resnet.acc} top-1 accuracy, \vouch{cifar.resnet_vs_vit.pts} points  % vouch: cifar.resnet.acc=93.2 ± 0.4%, cifar.resnet_vs_vit.pts=2.0
 ```
 
-- vouch owns only the ` % vouch: …` suffix. If the line already ends in a comment, the suffix goes after it (everything after the first `%` is a comment anyway).
+- vouch owns only the ` % vouch: key=…` suffix: the lint's `% vouch: ignore` pragma and every other comment are left alone. Files outside the project are never touched, line endings are kept, and a file is rewritten only when an annotation changed. If the line already ends in a comment, the suffix goes after it (everything after the first `%` is a comment anyway).
 - The suffix is plain text, not LaTeX, and is never read back as data.
 - Disabling the option and running `vouch sync --strip` removes every annotation.
 
@@ -1229,7 +1229,23 @@ Ported from asqc's `check.lint` and extended:
 - **Always flagged**, including in math: decimals (`0.93`), percentages (`12.5\%`), `\times` multipliers after a number, thousands separators (`18{,}535`), scientific notation (`1.2\times10^{-3}`), and `\pm` pairs.
 - **Flagged in text mode:** integers of two or more digits (`38 layers`). Years (`19xx`/`20xx`) are skipped when `allow_years` is on. Single digits and spelled-out numbers are never flagged.
 - **Exemptions:** `[lint] allow` rules (a regex matched against ±60 characters of context, plus a reason, optionally limited to certain files), and a `% vouch: ignore` pragma on the line.
-- **Matching** (this powers `bare-number` vs `no-source` and `vouch suggest`). Each flagged literal is parsed together with its implied precision (asqc's `parse_printed_full`: `93.2\%` claims 1 decimal place). It is then compared against every recorded value and its common transforms (×100 for percentages, Stat mean and std, tuple elements, params). A match is exact when rounding the candidate to the literal's implied precision reproduces the literal.
+- **Matching** (this powers `bare-number` vs `no-source` and `vouch suggest`). Each flagged literal is parsed together with its implied precision (asqc's `parse_printed_full`: `93.2\%` claims 1 decimal place). It is then compared against every recorded value and its common transforms (×100 for percentages, Stat mean and std, tuple elements, params). A match is exact when rounding the candidate to the literal's implied precision (half up) reproduces the literal. A `\pm` pair matches a Stat whose mean and std both round to it. Candidates live in a sorted index, so matching a long paper is instant.
+- **Messages.** A match names the key and the exact snippet that prints the literal, ranked values first, then params, then Stat fields:
+  ```
+  ! bare-number    93.2% is typed by hand; it is cifar.resnet.acc.mean: cite it as \vouch[.1pct]{cifar.resnet.acc.mean}
+  ! no-source      93.4% matches no recorded value; the closest recorded value is cifar.resnet.acc.max = 93.3, which doesn't round to it: record it where it is computed, or remove it
+  ```
+- **Masking, in detail:**
+  - comments and verbatim-like environments
+  - the arguments of `\vouch`, `\vouchraw` and `\vouchtable`, and the key of `\vouchclaim` (a claim's prose is still linted)
+  - `\newcommand`-style definitions
+  - references, citations, labels, URLs, `\includegraphics` and package options
+  - lengths (`3pt`, `0.45\textwidth`) and `\\[2pt]`
+  - `\begin`/`\end` with their optional arguments, and the column specs of `tabular`-like environments
+  - `\multicolumn`/`\multirow`/`\cmidrule` counts, colour definitions, `\setlength`-style settings, and `\date`
+
+  A number glued to a word (`ResNet-50`, `GPT4`), a version (`1.2.3`), `2\times2` notation, and sub- and superscripts in math are not literals.
+- **Where it runs.** `vouch build` and `vouch check` both report it, per paper. `[lint] level` is `"warn"` (default), `"error"` or `"off"`. `--strict` makes the warnings errors.
 
 ---
 
@@ -1559,7 +1575,7 @@ $ vouch run cifar_vit_jl --dep src/ --dep configs/vit.yaml --input data/cifar10.
 
 1. **Before running**, vouch hashes `--dep` paths (semantically for `.py`, by raw content otherwise; directories recursively, honoring `python.exclude`) and `--input` paths.
 2. It then runs the command with `VOUCH_RUN`, `VOUCH_ROOT` and `VOUCH_VALUES` (a temporary JSON path) set in the environment.
-3. The program writes its values to `$VOUCH_VALUES`, either as full records or as shorthand:
+3. The program writes its values to `$VOUCH_VALUES` (the full form's `values` entries may be `{"value": …, "fmt": …, "desc": …, "unit": …, "better": …}`, a Stat as `{"mean", "std", "n"}`, or a bare value), either as full records or as shorthand:
 
    ```json
    {"values": {"cifar.vit.acc": {"value": 0.912, "fmt": ".1pct", "desc": "ViT top-1", "better": "higher"}},
@@ -1570,7 +1586,8 @@ $ vouch run cifar_vit_jl --dep src/ --dep configs/vit.yaml --input data/cifar10.
    ```
 
 4. **On exit 0**, vouch hashes `--out` paths and declared artifacts, and writes a run record with `code.granularity = "deps"`. On a non-zero exit it writes nothing and passes the exit code through.
-5. **Python commands.** When the command is `python script.py …`, vouch runs it as `python -m vouch.exec script.py …`. The script gets function-level tracking with no code changes, and its own `vouch.record()` calls attach to this run.
+5. **Python commands.** When the command is `python script.py …`, vouch runs it as `python -m vouch.exec script.py …` (with vouch on `PYTHONPATH`). The script gets function-level tracking with no code changes, and its own `vouch.record()` and `@vouch.track` values land in this run: the child records under `$VOUCH_RUN`, and the wrapper merges in the declared deps, inputs, outputs and any `$VOUCH_VALUES`. If the command fails, a record the child wrote anyway (a script that ends in `sys.exit(3)` after recording) is rolled back, so a failed run never replaces a good one.
+7. **The recorded command** is the whole `vouch run …` invocation, so the `fix:` line for a stale run re-runs it with the same deps and outputs.
 6. **Existing results files.** `vouch run … --values results.json` reads values from a file the program already writes, instead of `$VOUCH_VALUES`. It accepts the same shapes as `record_all` (nested JSON, JSONL or CSV, plus `--prefix`, `--row-key` and `--stats`). A program that already dumps its metrics needs no changes at all.
 
 ### 14.1 Registering results that already exist: `vouch import`

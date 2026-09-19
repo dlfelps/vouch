@@ -25,12 +25,19 @@ def main(argv: list[str] | None = None) -> int:
     if not os.path.isfile(script):
         print(f"vouch.exec: no such script: {script}\n{USAGE}", file=sys.stderr)
         return 2
+    from .api import set_entry_script
     from .tracing import tracker
     here = os.path.dirname(os.path.abspath(script))
+    set_entry_script(script)
     tracker.configure(here)                  # the script's project, not the cwd's
     sys.argv = argv
     sys.path.insert(0, here)
     runpy.run_path(script, run_name="__main__")
+    if os.environ.get("VOUCH_RUN"):
+        # under `vouch run`: always leave a record of the code that ran, even if the
+        # script recorded nothing itself (its values may come from $VOUCH_VALUES)
+        from .api import _implicit_run
+        _implicit_run()
     return 0
 
 

@@ -43,7 +43,7 @@ def _run_columns(idx: Index, run: str | None) -> dict[str, str]:
     git = rec.get("git") or {}
     cmd = rec.get("command") or []
     return {
-        "experiment": run or "",
+        "experiment": (run or "") + (" (imported)" if rec.get("imported") else ""),
         "script": rec.get("entry") or "",
         "command": " ".join(shlex.quote(a) for a in cmd),
         "params": json.dumps(rec.get("params") or {}, sort_keys=True),

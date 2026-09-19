@@ -13,7 +13,8 @@ PRIORITY = ("config", "store-edited", "bad-record", "derive-error", "derive-cycl
             "format", "incomplete", "tampered", "stale", "upstream-stale", "false-claim",
             "figure-stale", "figure-tampered", "suspicious", "changed", "figure-changed",
             "fragile", "pending", "non-finite", "figure-missing", "figure-untracked",
-            "no-description", "env-drift", "absent", "table")
+            "no-source", "bare-number", "imported", "no-description", "env-drift", "absent",
+            "table")
 
 
 @dataclasses.dataclass
