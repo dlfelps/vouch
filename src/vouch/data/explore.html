@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vouch explore</title>
+<style>
+:root {
+  --bg: #f7f7f5; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --faint: #9a9a93;
+  --line: #e4e3de; --hover: #f1f0ec; --accent: #2f5fb3; --accent-ink: #ffffff;
+  --chip: #eef1f8; --chip-ink: #2a3d63; --good: #2e7d4f; --warn: #b26a00; --bad: #b3261e;
+  --code: #f3f2ee; --shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04);
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161615; --panel: #1f1f1d; --ink: #ecebe6; --muted: #a3a29b; --faint: #75746e;
+    --line: #33322f; --hover: #282826; --accent: #7aa2f7; --accent-ink: #10131a;
+    --chip: #262d3d; --chip-ink: #c5d3f5; --good: #6cc38f; --warn: #e3a64a; --bad: #f2877e;
+    --code: #262624; --shadow: none;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--sans); }
+button { font: inherit; color: inherit; }
+code, .mono { font-family: var(--mono); font-size: 12.5px; }
+
+header {
+  position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: 16px; padding: 10px 20px; flex-wrap: wrap;
+}
+.brand { font-weight: 650; letter-spacing: .2px; white-space: nowrap; }
+.brand .proj { color: var(--muted); font-weight: 450; margin-left: 6px; }
+#search {
+  flex: 1 1 320px; min-width: 200px; max-width: 560px; padding: 7px 11px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink); font: inherit;
+}
+#search:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; background: var(--panel); padding: 6px 10px; cursor: pointer; color: var(--muted); }
+.seg button.on { background: var(--accent); color: var(--accent-ink); }
+.meta { color: var(--muted); font-size: 12.5px; white-space: nowrap; margin-left: auto; }
+.live { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--good);
+        margin-right: 6px; vertical-align: 1px; }
+.live.off { background: var(--faint); }
+
+.wrap { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 20px; padding: 16px 20px 60px;
+        max-width: 1400px; margin: 0 auto; }
+nav { position: sticky; top: 64px; align-self: start; max-height: calc(100vh - 80px); overflow: auto;
+      font-size: 13px; }
+nav a { display: block; color: var(--ink); text-decoration: none; padding: 3px 8px; border-radius: 6px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+nav a:hover { background: var(--hover); }
+nav a.script { font-weight: 600; margin-top: 10px; font-family: var(--mono); font-size: 12.5px; }
+nav a.navfn { color: var(--muted); padding-left: 18px; }
+nav a .n { float: right; color: var(--faint); }
+@media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } nav { display: none; } }
+
+.banner { border: 1px solid var(--warn); color: var(--warn); background: var(--panel); border-radius: 8px;
+          padding: 8px 12px; margin-bottom: 14px; font-size: 13px; }
+.banner.error { border-color: var(--bad); color: var(--bad); }
+.banner div + div { margin-top: 3px; }
+
+section.script { margin-bottom: 26px; scroll-margin-top: 70px; }
+.script-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 0 0 8px; }
+.script-head h2 { font-family: var(--mono); font-size: 15px; margin: 0; cursor: pointer; user-select: none; }
+.script-head h2::before { content: "▾ "; color: var(--faint); }
+section.closed .script-head h2::before { content: "▸ "; }
+section.closed .fn { display: none; }
+.run { display: inline-flex; gap: 8px; align-items: baseline; color: var(--muted); font-size: 12.5px; }
+.run code { background: var(--code); padding: 1px 6px; border-radius: 4px; cursor: pointer; }
+.run code:hover { outline: 1px solid var(--line); }
+
+.fn { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; margin: 0 0 12px;
+      box-shadow: var(--shadow); overflow: hidden; scroll-margin-top: 70px; }
+.fn-head { display: flex; gap: 10px; align-items: baseline; padding: 9px 14px; border-bottom: 1px solid var(--line);
+           flex-wrap: wrap; }
+.fn-head .name { font-family: var(--mono); font-weight: 600; }
+.how { font-size: 11.5px; padding: 1px 7px; border-radius: 99px; background: var(--chip); color: var(--chip-ink); }
+.fn-head .where { color: var(--muted); font-size: 12.5px; font-family: var(--mono); }
+
+.row { border-top: 1px solid var(--line); }
+.row:first-of-type { border-top: 0; }
+.line { display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr) minmax(0, 2fr) 150px 190px;
+        gap: 12px; align-items: center; padding: 7px 14px; cursor: pointer; }
+.line:hover { background: var(--hover); }
+.key { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
+.key .tw { color: var(--faint); margin-right: 4px; font-size: 10px; display: inline-block; width: 8px; }
+.row.open .key .tw { transform: rotate(90deg); }
+.val { font-variant-numeric: tabular-nums; font-weight: 550; overflow-wrap: anywhere; }
+.val.false { color: var(--bad); }
+.desc { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tags { display: flex; gap: 6px; align-items: center; justify-content: flex-end; white-space: nowrap; }
+.pill { font-size: 11.5px; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+.pill.cited { border-color: transparent; background: var(--chip); color: var(--chip-ink); }
+.state { font-size: 11.5px; color: var(--muted); }
+.state::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+                 margin-right: 5px; background: var(--good); vertical-align: 0; }
+.state.bad { color: var(--bad); } .state.bad::before { background: var(--bad); }
+.state.warn { color: var(--warn); } .state.warn::before { background: var(--warn); }
+.copy { border: 1px solid var(--line); background: var(--panel); border-radius: 7px; padding: 3px 9px;
+        cursor: pointer; font-size: 12px; font-family: var(--mono); white-space: nowrap; }
+.copy:hover { border-color: var(--accent); color: var(--accent); }
+.copy.done { background: var(--good); border-color: var(--good); color: #fff; }
+.btns { display: flex; gap: 6px; justify-content: flex-end; }
+
+.parts { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 14px 8px 32px; margin-top: -2px; }
+.part { font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); border-radius: 6px;
+        padding: 1px 7px; cursor: pointer; background: var(--panel); }
+.part:hover { border-color: var(--accent); }
+.part b { font-weight: 600; font-family: var(--sans); margin-left: 5px; font-variant-numeric: tabular-nums; }
+.part.cited { background: var(--chip); color: var(--chip-ink); border-color: transparent; }
+
+table.cells { border-collapse: collapse; margin: 0 14px 10px 32px; font-size: 13px; }
+table.cells th { text-align: left; color: var(--muted); font-weight: 500; padding: 3px 10px;
+                 border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 12px; }
+table.cells td { padding: 3px 10px; cursor: pointer; border-radius: 4px; font-variant-numeric: tabular-nums; }
+table.cells td:hover { background: var(--hover); outline: 1px solid var(--accent); }
+table.cells td.cited { color: var(--chip-ink); }
+
+.details { display: none; padding: 4px 14px 12px 32px; font-size: 13px; }
+.row.open .details { display: block; }
+.details dl { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 3px 12px; margin: 0; }
+.details dt { color: var(--muted); }
+.details dd { margin: 0; overflow-wrap: anywhere; }
+.details code { background: var(--code); padding: 0 5px; border-radius: 4px; }
+.details a { color: var(--accent); cursor: pointer; text-decoration: none; }
+.details a:hover { text-decoration: underline; }
+
+.empty { color: var(--muted); padding: 60px 20px; text-align: center; }
+.empty code { background: var(--code); padding: 1px 6px; border-radius: 4px; }
+.hidden { display: none !important; }
+
+#toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%) translateY(20px); opacity: 0;
+         background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px;
+         transition: all .18s ease; pointer-events: none; max-width: 90vw; overflow-wrap: anywhere; }
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+#toast code { font-family: var(--mono); }
+@media (max-width: 700px) {
+  .line { grid-template-columns: minmax(0, 1fr) auto; }
+  .desc, .tags { display: none; }
+  .val { grid-column: 1; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">vouch explore<span class="proj" id="proj"></span></div>
+  <input id="search" type="search" placeholder="Search keys, descriptions, functions, arguments…  ( / )" autocomplete="off" spellcheck="false">
+  <div class="seg" id="filter">
+    <button data-f="all" class="on">All</button><button data-f="cited">Cited</button><button data-f="uncited">Not cited</button>
+  </div>
+  <div class="meta"><span class="live off" id="live"></span><span id="counts"></span></div>
+</header>
+<div class="wrap">
+  <nav id="nav"></nav>
+  <main id="main"><div class="empty">Loading…</div></main>
+</div>
+<div id="toast"></div>
+<script>
+"use strict";
+const EMBEDDED = /*__VOUCH_DATA__*/null;
+const ui = { q: "", filter: "all", open: new Set(), closed: new Set() };
+let data = null, stamp = null;
+
+// -- tiny DOM helper -----------------------------------------------------------
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === null || v === undefined || v === false) continue;
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat()) {
+    if (kid === null || kid === undefined || kid === false) continue;
+    el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  }
+  return el;
+}
+
+// -- copying ------------------------------------------------------------------------
+async function copy(text, btn) {
+  let ok = false;
+  try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {
+    const ta = h("textarea", { style: "position:fixed;left:-9999px" }); ta.value = text;
+    document.body.append(ta); ta.select();
+    try { ok = document.execCommand("copy"); } catch (e2) { ok = false; }
+    ta.remove();
+  }
+  toast(ok ? "Copied " : "Could not copy ", text);
+  if (btn && ok) { btn.classList.add("done"); setTimeout(() => btn.classList.remove("done"), 900); }
+}
+let toastTimer = null;
+function toast(msg, code) {
+  const t = document.getElementById("toast");
+  t.replaceChildren(msg, h("code", null, code.length > 90 ? code.slice(0, 88) + "…" : code));
+  t.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 1600);
+}
+function copyBtn(label, text, title) {
+  const b = h("button", { class: "copy", title: title || text, onclick: (ev) => { ev.stopPropagation(); copy(text, b); } }, label);
+  return b;
+}
+
+// -- filtering ------------------------------------------------------------------------
+function haystack(fn, it) {
+  return [it.key, it.desc, it.value, fn.name, it.call || "", it.alias_of || "",
+          (it.parts || []).map(p => p.key).join(" ")].join(" ").toLowerCase();
+}
+function visible(fn, it) {
+  const cited = (it.cited || []).length > 0 || (it.parts || []).some(p => p.cited.length) ||
+                (it.rows || []).some(r => r.some(c => c.cited.length));
+  if (ui.filter === "cited" && !cited) return false;
+  if (ui.filter === "uncited" && cited) return false;
+  if (!ui.q) return true;
+  const hay = haystack(fn, it);
+  return ui.q.toLowerCase().split(/\s+/).filter(Boolean).every(tok => hay.includes(tok));
+}
+
+// -- rendering ------------------------------------------------------------------------
+function stateTag(s) {
+  if (!s) return null;
+  const bad = ["stale", "upstream-stale", "tampered", "incomplete"].includes(s);
+  const warn = s === "accepted";
+  return h("span", { class: "state" + (bad ? " bad" : warn ? " warn" : "") },
+           s === "cosmetic" ? "fresh" : s);
+}
+function citedTag(list) {
+  return list && list.length
+    ? h("span", { class: "pill cited", title: "cited at " + list.join(", ") }, "cited " + list.length + "×")
+    : h("span", { class: "pill" }, "not cited");
+}
+function snippetLabel(it) {
+  if (it.kind === "claim") return "\\vouchclaim";
+  if (it.kind === "table") return "\\vouchtable";
+  if (it.kind === "figure") return "\\includegraphics";
+  return "\\vouch";
+}
+function focusKey(key) {
+  ui.q = key; document.getElementById("search").value = key; ui.open.add(key); render();
+}
+function detail(it) {
+  const rows = [];
+  const add = (k, ...v) => rows.push(h("dt", null, k), h("dd", null, ...v));
+  if (it.desc) add("description", it.desc);
+  if (it.kind === "claim" && it.explanation)
+    add("because", it.explanation + (typeof it.margin === "number" ? `   (margin ${(100 * it.margin).toFixed(1)}%)` : ""));
+  if (it.alias_of) add("alias of", h("a", { onclick: () => focusKey(it.alias_of) }, it.alias_of));
+  if (it.call) add("recorded by", h("code", null, it.call));
+  if (it.each) add("each call", it.each);
+  if (it.derived) {
+    const d = it.derived;
+    add("derived by", h("code", null, d.function), d.site ? "  at " + d.site : "");
+    if (d.deps.length) add("from", ...d.deps.flatMap((k, i) => [i ? ", " : "", h("a", { onclick: () => focusKey(k) }, k)]));
+    if (d.inputs.length) add("reads", d.inputs.join(", "));
+    if (d.runs.length) add("runs", d.runs.join(", "));
+  } else if (it.site) {
+    add(it.call ? "function at" : "recorded at", h("code", null, it.site),
+        it.sites && it.sites.length ? "   called at " + it.sites.join(", ") : "");
+  }
+  if (it.run) add("run", it.run);
+  const fmt = [it.fmt && "fmt " + it.fmt, it.unit && "unit " + it.unit, it.better && "better: " + it.better].filter(Boolean);
+  if (fmt.length) add("format", fmt.join(" · "));
+  add("cite with", h("code", null, it.snippet));
+  if (it.tabular) add("", h("pre", { class: "mono", style: "margin:4px 0 0;white-space:pre-wrap" }, it.tabular));
+  add("cited at", it.cited && it.cited.length ? it.cited.join(", ") : "not cited yet");
+  return h("div", { class: "details" }, h("dl", null, rows));
+}
+function itemRow(fn, it) {
+  const row = h("div", { class: "row" + (ui.open.has(it.key) ? " open" : ""), "data-key": it.key });
+  const btns = h("div", { class: "btns" }, copyBtn(snippetLabel(it), it.snippet));
+  if (it.tabular) btns.append(copyBtn("tabular", it.tabular, "a booktabs tabular around \\vouchtable"));
+  const valClass = "val" + (it.kind === "claim" && it.value === "FALSE" ? " false" : "");
+  row.append(h("div", { class: "line", onclick: () => {
+      if (ui.open.has(it.key)) ui.open.delete(it.key); else ui.open.add(it.key);
+      row.classList.toggle("open"); } },
+    h("div", { class: "key" }, h("span", { class: "tw" }, "▶"), it.key),
+    h("div", { class: valClass }, it.kind === "table" ? `${it.rows ? it.rows.length : 0} rows` : it.value),
+    h("div", { class: "desc", title: it.desc }, it.desc),
+    h("div", { class: "tags" }, stateTag(it.state), citedTag(it.cited)),
+    btns));
+  if (it.parts && it.parts.length) {
+    row.append(h("div", { class: "parts" }, it.parts.map(p =>
+      h("span", { class: "part" + (p.cited.length ? " cited" : ""), title: "copy \\vouch{" + p.key + "}",
+                  onclick: (ev) => { ev.stopPropagation(); copy("\\vouch{" + p.key + "}"); } },
+        "." + p.name, h("b", null, p.value)))));
+  }
+  if (it.rows && it.rows.length) {
+    row.append(h("table", { class: "cells" },
+      h("tr", null, it.columns.map(c => h("th", null, c))),
+      it.rows.map(r => h("tr", null, r.map(c =>
+        h("td", { class: c.cited.length ? "cited" : null, title: "copy \\vouch{" + c.key + "}",
+                  onclick: (ev) => { ev.stopPropagation(); copy("\\vouch{" + c.key + "}"); } }, c.value))))));
+  }
+  row.append(detail(it));
+  return row;
+}
+function slug(s) { return "s-" + s.replace(/[^A-Za-z0-9]+/g, "-"); }
+
+function render() {
+  const main = document.getElementById("main"), nav = document.getElementById("nav");
+  if (!data) return;
+  document.getElementById("proj").textContent = data.project ? "· " + data.project : "";
+  if (data.error) {
+    main.replaceChildren(h("div", { class: "banner error" }, "vouch could not read this project: " + data.error));
+    return;
+  }
+  const c = data.counts || {};
+  document.getElementById("counts").textContent =
+    `${c.values || 0} values · ${c.claims || 0} claims · ${c.tables || 0} tables · ${c.figures || 0} figures`;
+  const out = [], navOut = [];
+  if (data.issues && data.issues.length) {
+    out.push(h("div", { class: "banner" + (data.issues.some(i => i.severity === "error") ? " error" : "") },
+      data.issues.slice(0, 6).map(i => h("div", null, `${i.check}: ${i.message}`))));
+  }
+  let shown = 0;
+  for (const s of data.scripts) {
+    const fns = [];
+    const navFns = [];
+    for (const fn of s.functions) {
+      const items = fn.items.filter(it => visible(fn, it));
+      if (!items.length) continue;
+      shown += items.length;
+      const id = slug(s.script + "-" + fn.name + "-" + fn.how);
+      const head = h("div", { class: "fn-head" },
+        h("span", { class: "name" }, fn.name),
+        h("span", { class: "how" }, fn.how),
+        fn.where ? h("span", { class: "where" }, fn.where) : null,
+        fn.lines && fn.lines.length > 1 ? h("span", { class: "where" }, "lines " + fn.lines.map(l => l.split(":").pop()).join(", ")) : null);
+      fns.push(h("div", { class: "fn", id }, head, items.map(it => itemRow(fn, it))));
+      navFns.push(h("a", { class: "navfn", href: "#" + id }, fn.name, h("span", { class: "n" }, items.length)));
+    }
+    if (!fns.length) continue;
+    const sid = slug(s.script);
+    const runs = s.runs.map(r => h("span", { class: "run" },
+      "run " + r.id, stateTag(r.state),
+      r.command ? h("code", { title: "copy the command", onclick: () => copy(r.command) }, r.command) : null,
+      r.started ? r.started.slice(0, 16) : null,
+      r.commit ? "git " + r.commit + (r.dirty ? " (dirty)" : "") : null));
+    const sec = h("section", { class: "script" + (ui.closed.has(s.script) ? " closed" : ""), id: sid },
+      h("div", { class: "script-head" },
+        h("h2", { onclick: () => { ui.closed.has(s.script) ? ui.closed.delete(s.script) : ui.closed.add(s.script); sec.classList.toggle("closed"); } }, s.script),
+        runs),
+      fns);
+    out.push(sec);
+    navOut.push(h("a", { class: "script", href: "#" + sid }, s.script), ...navFns);
+  }
+  if (!data.scripts.length) {
+    out.push(h("div", { class: "empty" }, "No values recorded yet. Run an experiment that uses vouch — ",
+      h("code", null, "@vouch.track"), " or ", h("code", null, "vouch.record"), " — and this page updates."));
+  } else if (!shown) {
+    out.push(h("div", { class: "empty" }, "Nothing matches."));
+  }
+  main.replaceChildren(...out);
+  nav.replaceChildren(...navOut);
+}
+
+// -- loading and live updates ---------------------------------------------------------
+async function load() {
+  if (EMBEDDED) { data = EMBEDDED; render(); return; }
+  try {
+    const r = await fetch("api/registry", { cache: "no-store" });
+    data = await r.json(); stamp = data.stamp; render();
+    document.getElementById("live").classList.remove("off");
+  } catch (e) { document.getElementById("live").classList.add("off"); }
+}
+async function poll() {
+  try {
+    const r = await fetch("api/stamp", { cache: "no-store" });
+    const s = (await r.json()).stamp;
+    document.getElementById("live").classList.remove("off");
+    if (s !== stamp) await load();
+  } catch (e) { document.getElementById("live").classList.add("off"); }
+}
+
+document.getElementById("search").addEventListener("input", (e) => { ui.q = e.target.value.trim(); render(); });
+document.getElementById("filter").addEventListener("click", (e) => {
+  const f = e.target.getAttribute("data-f"); if (!f) return;
+  ui.filter = f;
+  for (const b of document.querySelectorAll("#filter button")) b.classList.toggle("on", b === e.target);
+  render();
+});
+document.addEventListener("keydown", (e) => {
+  const s = document.getElementById("search");
+  if (e.key === "/" && document.activeElement !== s) { e.preventDefault(); s.focus(); s.select(); }
+  if (e.key === "Escape" && document.activeElement === s) { s.value = ""; ui.q = ""; render(); s.blur(); }
+});
+const params = new URLSearchParams(location.search);
+const initial = params.get("q") || params.get("open");      // ?open=KEY: that key, expanded
+if (params.get("open")) ui.open.add(params.get("open"));
+if (initial) { ui.q = initial; document.getElementById("search").value = initial; }
+load();
+if (!EMBEDDED) setInterval(poll, 2000);
+else document.getElementById("live").title = "a snapshot: run `vouch explore` for a live view";
+</script>
+</body>
+</html>

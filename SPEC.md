@@ -1234,6 +1234,7 @@ Every command accepts `--json`, which emits a stable, versioned envelope (§13.6
 | `vouch status` | Freshness per run, git-status style, with the exact re-run command and the units that changed. |
 | `vouch ls [PATTERN] [--cited\|--uncited] [--fields …]` | Keys with rendered value, description, run, freshness and citation count. |
 | `vouch trace KEY \| SCRIPT \| FILE:LINE` | The full chain for a key; the values a script produces and where they're cited; or the values cited on a line of tex. |
+| `vouch explore [--port N] [--open] [--html FILE] [--json]` | Browse every recorded value in a local web page, grouped by script and function, and copy the LaTeX that cites it (§12.2). |
 | `vouch search "WORDS" [--limit N]` | Ranked lookup (§13.2). |
 | `vouch cite KEY [--fmt F]` | The snippet to paste, plus its rendering (§13.2). |
 | `vouch compare A B [--write]` | Arithmetic, plus ready-to-paste `derive`/`claim` code; `--write` appends it to `vouch_values.py` (§13.2). |
@@ -1274,6 +1275,56 @@ cifar.resnet.acc = Stat(mean=0.93214, std=0.0041, n=5)   → "93.2 ± 0.4\%"   (
   feeds     cifar.resnet_vs_vit.pts (derived) · claim cifar.resnet_beats_vit · table main[resnet, CIFAR-10]
   cited     paper/main.tex:41, paper/main.tex:118, paper/sections/results.tex:22
 ```
+
+### 12.2 Exploring the registry: `vouch explore`
+
+Keys made by `@vouch.track` are generated from the function and its arguments, so a person writing the paper needs a way to find them without reading JSON. `vouch explore` serves a read-only page on `http://127.0.0.1:8765/`, grouped the way the code is:
+
+```
+experiments/train.py        run experiments.train · fresh · python experiments/train.py · git 0fdc530
+  evaluate   @vouch.track   experiments/train.py:7
+    evaluate.cifar.resnet.lr_0_001.acc   92.9 ± 0.6%   top-1 test accuracy   cited 1×   [\vouch]
+      .mean 92.9%  .std 0.6%  .n 5  .ci95 92.2–93.6%  .min  .max                       (each copies its key)
+  main       recorded       experiments/train.py:18
+    cifar.n_test   10000   test images   not cited   [\vouch]
+    paper/figs/curves.pdf   figure saved by the run   [\includegraphics]
+  parameters
+vouch_values.py
+  gap        derived        vouch_values.py:6
+  aliases
+```
+
+- **Grouping.**
+  - **Scripts:** each run's entry script comes first, then `vouch_values.py`.
+  - **Tracked values:** a value from `@vouch.track` or `[[track]]` sits under its function.
+  - **Recorded values:** a `vouch.record`/`record_all`/`table`/`claim` call, or a saved figure, sits under the function the call is in (found from the source), or under "top level".
+  - **Parameters:** these form their own group.
+  - **Derived values:** these sit under their definition. Aliases are listed separately.
+  - **Order:** groups follow source order.
+- **Copying.** Every row has a button that copies its citation:
+  - `\vouch{key}` for a value.
+  - `\vouchclaim{key}{desc}` for a claim.
+  - `\vouchtable{key}` for a table, plus a second button that copies a whole booktabs `tabular` around it with the column headers.
+  - `\includegraphics[width=\linewidth]{…}` for a figure, with the path relative to the paper.
+
+  Clicking a subfield chip (`.mean`, `.std`, …) or a table cell copies that key.
+- **Details.** Clicking a row opens its provenance:
+  - the description, format and unit
+  - for tracked values: the call (`evaluate(dataset=cifar, model=resnet, lr=0.001) over seed=0..4 (5 calls)`), each call's result, and the definition and call sites
+  - for derived values: the definition, the keys it read (each one a link) and its runs
+  - what an alias points to
+  - where the key is cited in the paper
+- **Finding.**
+  - A search box matches keys, descriptions, function names, call arguments (`model=resnet`) and values. Press `/` to focus it.
+  - Filters show all, cited, or not-cited keys.
+  - Each row shows its run's state (fresh, stale, …) and how often the paper cites it.
+- **Links.** `?q=WORDS` opens the page with a search, and `?open=KEY` opens it on one key, expanded.
+- **Live.** The page checks every two seconds whether anything it shows has changed: the run records, `derived.json`, the acknowledgment and accept files, `vouch.toml`, or the paper's `.tex` files. Re-running an experiment, or citing a key, updates it in place. Problems a check would report about derived values (out of date, definition errors) appear in a banner.
+- **Safety.**
+  - The server binds to 127.0.0.1 only and serves only the page and its JSON.
+  - It rejects requests whose `Host` isn't the local address, so a web page can't read it through DNS rebinding.
+  - It never runs project code: derived values come from `derived.json`, exactly as in `vouch check`.
+- **Snapshots.** `--html FILE` writes the same page as one self-contained file with the data embedded, for sharing with a co-author or attaching to a review. `--json` prints the data the page shows.
 
 ---
 

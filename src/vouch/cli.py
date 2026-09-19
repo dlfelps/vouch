@@ -473,6 +473,27 @@ def _trace_key(ctx, key: str, args, indent: str = "") -> int:
     return EXIT_OK
 
 
+def cmd_explore(args) -> int:
+    from .explore import page, registry, serve
+    try:
+        cfg = _config(args)
+        if args.json or args.html:
+            data = registry(cfg)
+    except (ConfigError, FileNotFoundError) as exc:
+        return _fatal("explore", exc)
+    if args.json:
+        print(_envelope("explore", True, registry=data))
+        return EXIT_OK
+    if args.html:
+        Path(args.html).write_text(page(data), encoding="utf-8", newline="\n")
+        n = data["counts"]
+        C.out(f"wrote {args.html} ({n['values']} values, {n['claims']} claims, {n['tables']} tables); "
+              f"a snapshot -- `vouch explore` serves a live view")
+        return EXIT_OK
+    serve(cfg, port=args.port, open_browser=args.open, out=C.out)
+    return EXIT_OK
+
+
 # ---------------------------------------------------------------------------
 # accept / changes / ack / review
 # ---------------------------------------------------------------------------
@@ -688,6 +709,12 @@ def make_parser() -> argparse.ArgumentParser:
     sp.add_argument("--cited", action="store_true", help="only keys the paper cites")
     sp.add_argument("--uncited", action="store_true", help="only keys the paper doesn't cite")
     sp.add_argument("--json", action="store_true")
+
+    sp = add("explore", cmd_explore, "browse recorded values in a local web page; copy the LaTeX")
+    sp.add_argument("--port", type=int, default=8765, help="port on 127.0.0.1 (default 8765)")
+    sp.add_argument("--open", action="store_true", help="open it in the browser")
+    sp.add_argument("--html", metavar="FILE", help="write a self-contained snapshot instead")
+    sp.add_argument("--json", action="store_true", help="print the data the page shows")
 
     sp = add("trace", cmd_trace, "where a value came from (a key, a tex file:line, or a script)")
     sp.add_argument("target")
