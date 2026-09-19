@@ -74,7 +74,7 @@ class RunState:
         if self.state == "fresh":
             return "fresh"
         if self.state == "cosmetic":
-            return "fresh (cosmetic edits only)"
+            return "fresh (files changed, but not in anything this run executed)"
         if self.state == "accepted":
             a = self.acceptance or {}
             return f"accepted: {a.get('why', '')}".strip()
@@ -241,7 +241,7 @@ def assess(cfg: Config, runs: dict[str, dict], *, cache: HashCache | None = None
             for path, rh in sorted((rec.get("code", {}).get("files") or {}).items()):
                 cur = raw_hash(cfg.root / path)
                 if cur is not None and cur != rh:
-                    reasons.append(Reason("cosmetic", path, "comments/docstrings/formatting only"))
+                    reasons.append(Reason("cosmetic", path, "changed outside the code this run used"))
 
         # inputs
         for path, h in sorted((rec.get("inputs") or {}).items()):

@@ -385,8 +385,13 @@ def _trace_key(ctx, key: str, args, indent: str = "") -> int:
                    + (", " + ", ".join(f"{k} {v}" for k, v in list(pk.items())[:4]) if pk else ""))
         units = (rec.get("code") or {}).get("units", {})
         files = sorted({u.split("::")[0] for u in units})
-        out.append(f"  code      {len(units)} units in {len(files)} file(s) · {st.state if st else '?'}"
-                   + ("" if args.code else "   (--code to list)"))
+        code_info = rec.get("code") or {}
+        gran = code_info.get("granularity", "?")
+        out.append(f"  code      {len(units)} units in {len(files)} file(s), tracked by {gran}"
+                   + (f" ({code_info['why']})" if code_info.get("why") else "")
+                   + f" · {st.state if st else '?'}" + ("" if args.code else "   (--code to list)"))
+        for path, why in sorted((code_info.get("whole_files") or {}).items()):
+            out.append(f"            {path}: tracked whole -- {why}")
         if args.code:
             changed = {r.subject for r in (st.reasons if st else [])}
             for u in sorted(units):
@@ -665,6 +670,8 @@ def _utf8_when_piped() -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from .tracing import tracker
+    tracker.stop()                     # the CLI runs no experiment; nothing to track
     _utf8_when_piped()
     parser = make_parser()
     args = parser.parse_args(argv)

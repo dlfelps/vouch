@@ -30,7 +30,8 @@ from . import fmt as _fmt
 from .config import Config, ConfigError, discover_root
 from .hashing import hash_path
 from .store import SCHEMA, ensure_store, write_record
-from .units import raw_hash, units_from_file
+from .tracing import tracker as _tracker
+from .units import CLASS, MODULE_KIND, analyze, raw_hash_text, read_source
 from .values import (BETTER, Stat, as_mapping, coerce_scalar, encode, encode_cell,
                      encode_param, flatten, is_finite_value, is_number, is_valid_key,
                      join_key, sanitize_key, slug_segment)
@@ -713,11 +714,14 @@ def _command(cfg: Config) -> list[str]:
 
 
 def _git(root: Path, *args: str) -> str | None:
+    _tracker.internal += 1          # vouch's own subprocess is not one of the run's children
     try:
         r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True,
                            timeout=10)
     except (OSError, subprocess.SubprocessError):
         return None
+    finally:
+        _tracker.internal -= 1
     return r.stdout.strip() if r.returncode == 0 else None
 
 
@@ -745,27 +749,72 @@ def _first_party_files(cfg: Config) -> list[str]:
             continue
         if cfg.is_first_party(f):
             files.add(os.path.abspath(f))
+    # code that ran without being imported as a module (runpy, exec of a real file)
+    for n in list(_tracker.executed):
+        f = _tracker.paths.get(n)
+        if f and cfg.is_first_party(f):
+            files.add(f)
     return sorted(files)
 
 
 def _code_info(cfg: Config, first_party: list[str]) -> dict:
-    """Code units at module granularity: every unit of every first-party module loaded.
+    """The code units this run depends on (SPEC §8.1-8.2).
 
-    Function-level tracking (SPEC §8.2) narrows this to the functions that ran.
+    With function-level tracking: every module and class body of each first-party
+    file the run loaded, plus the functions it actually executed -- hashed from the
+    source *as it was when the run loaded it*. Files that can't be tracked by
+    function (imported before tracking started, ...) count whole, and say why.
     """
+    gran, why = _tracker.granularity(cfg.get("freshness", "granularity", "function"))
     units: dict[str, str] = {}
     files: dict[str, str | None] = {}
+    whole: dict[str, str] = {}
+    edited: list[str] = []
     for f in first_party:
+        n = os.path.normcase(os.path.abspath(f))
         rel = cfg.rel(f)
-        files[rel] = raw_hash(f)
-        found = units_from_file(f)
-        if found is None:
+        src = _tracker.snapshots.get(n)
+        try:
+            now = read_source(f)
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            now = None
+        if src is None:
+            src = now
+        elif now is not None and now != src:
+            edited.append(rel)
+        if src is None:
             units[f"{rel}::<module>"] = "unparseable"
             continue
-        for qual, h in found.items():
-            units[f"{rel}::{qual}"] = h
-    return {"granularity": "module", "units": dict(sorted(units.items())),
-            "files": dict(sorted(files.items()))}
+        files[rel] = raw_hash_text(src)
+        got = analyze(src, rel)
+        if got is None:
+            units[f"{rel}::<module>"] = "unparseable"
+            continue
+        hashes, kinds = got
+        keep = list(hashes)
+        if gran == "function":
+            reason = _tracker.whole.get(n)
+            ran = _tracker.executed.get(n, set())
+            unmapped = sorted(ran - set(hashes))
+            if unmapped and not reason:
+                reason = f"executed code not found in the source ({', '.join(unmapped[:2])})"
+            if reason:
+                whole[rel] = reason
+            else:
+                keep = [q for q in hashes if kinds.get(q) in (MODULE_KIND, CLASS) or q in ran]
+        for qual in keep:
+            units[f"{rel}::{qual}"] = hashes[qual]
+    if edited:
+        _warn(f"{', '.join(edited)} changed while the run was in progress; recorded the code that "
+              f"ran, so `vouch check` will report this run stale")
+    info: dict[str, Any] = {"granularity": gran}
+    if why and why != "configured":
+        info["why"] = why
+    info["units"] = dict(sorted(units.items()))
+    info["files"] = dict(sorted(files.items()))
+    if whole:
+        info["whole_files"] = dict(sorted(whole.items()))
+    return info
 
 
 _dists_cache: dict | None = None

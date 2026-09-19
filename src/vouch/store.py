@@ -29,16 +29,19 @@ TOP_ORDER = ("schema", "run", "status", "entry", "command", "params", "started",
 
 # maps written one entry per line (a path of keys from the top of the record)
 EXPANDED = {(), ("params",), ("code",), ("code", "units"), ("code", "files"),
+            ("code", "whole_files"),
             ("inputs",), ("values",), ("claims",), ("artifacts",), ("tables",)}
 
 # maps keyed by user data (value keys, paths, column names): always sorted.
 # "*" stands for any single user key.
-USER_MAPS = {("params",), ("code", "units"), ("code", "files"), ("inputs",), ("values",),
+USER_MAPS = {("params",), ("code", "units"), ("code", "files"), ("code", "whole_files"),
+             ("inputs",), ("values",),
              ("claims",), ("artifacts",), ("tables",), ("env", "packages"),
              ("claims", "*", "values"), ("tables", "*", "fmt"), ("tables", "*", "highlight")}
 
 # every other map is record structure, written in this reading order
-FIELD_ORDER = ("type", "value", "holds", "hash", "kind", "granularity", "units", "files",
+FIELD_ORDER = ("type", "value", "holds", "hash", "kind", "granularity", "why", "units",
+               "files", "whole_files",
                "python", "platform", "packages", "commit", "dirty", "mean", "std", "n",
                "min", "max", "fmt", "unit", "better", "desc", "columns", "row_key", "rows",
                "highlight", "second", "midrules", "values", "site")

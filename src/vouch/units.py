@@ -32,6 +32,7 @@ HASH_VERSION = "u1"          # bump if the canonical form ever changes
 HASH_LEN = 16
 
 MODULE = "<module>"
+MODULE_KIND, CLASS, FUNCTION = "module", "class", "function"
 
 _DEFS = (ast.FunctionDef, ast.AsyncFunctionDef)
 _DOC_OWNERS = (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
@@ -105,7 +106,8 @@ def strip_docstrings(tree: ast.AST) -> ast.AST:
 _BLOCK_FIELDS = ("body", "orelse", "finalbody", "handlers", "cases")
 
 
-def _extract(stmts: list[ast.stmt], units: dict[str, list[str]], prefix: str) -> list[ast.stmt]:
+def _extract(stmts: list[ast.stmt], units: dict[str, list[str]], prefix: str,
+             kinds: dict[str, str]) -> list[ast.stmt]:
     """Return ``stmts`` without their definitions, recording each definition as a unit.
 
     A definition's decorators, signature and defaults are part of its own unit, so
@@ -119,11 +121,13 @@ def _extract(stmts: list[ast.stmt], units: dict[str, list[str]], prefix: str) ->
     for stmt in stmts:
         if isinstance(stmt, _DEFS):
             units.setdefault(f"{prefix}{stmt.name}", []).append(canonical(stmt))
+            kinds.setdefault(f"{prefix}{stmt.name}", FUNCTION)
         elif isinstance(stmt, ast.ClassDef):
             qual = f"{prefix}{stmt.name}"
             cls = copy.copy(stmt)
-            cls.body = _extract(list(stmt.body), units, f"{qual}.")
+            cls.body = _extract(list(stmt.body), units, f"{qual}.", kinds)
             units.setdefault(qual, []).append(canonical(cls))
+            kinds[qual] = CLASS
         else:
             stmt = copy.copy(stmt)
             for field in _BLOCK_FIELDS:
@@ -132,10 +136,10 @@ def _extract(stmts: list[ast.stmt], units: dict[str, list[str]], prefix: str) ->
                     new = []
                     for item in block:
                         if isinstance(item, ast.stmt):
-                            new.extend(_extract([item], units, prefix))
+                            new.extend(_extract([item], units, prefix, kinds))
                         elif hasattr(item, "body"):          # ExceptHandler, match_case
                             item = copy.copy(item)
-                            item.body = _extract(list(item.body), units, prefix)
+                            item.body = _extract(list(item.body), units, prefix, kinds)
                             new.append(item)
                         else:
                             new.append(item)
@@ -144,8 +148,9 @@ def _extract(stmts: list[ast.stmt], units: dict[str, list[str]], prefix: str) ->
     return out
 
 
-def units_from_source(source: str, filename: str = "<unknown>") -> dict[str, str] | None:
-    """{qualname: hash} for every unit in ``source``; None if it doesn't parse.
+def analyze(source: str, filename: str = "<unknown>") -> tuple[dict[str, str], dict[str, str]] | None:
+    """({qualname: hash}, {qualname: kind}) for every unit in ``source``; None if it
+    doesn't parse. Kinds are ``module``, ``class`` and ``function``.
 
     A qualname defined more than once (conditional definitions, a property setter)
     hashes all of its definitions together, in source order.
@@ -156,10 +161,17 @@ def units_from_source(source: str, filename: str = "<unknown>") -> dict[str, str
         return None
     strip_docstrings(tree)
     chunks: dict[str, list[str]] = {}
+    kinds: dict[str, str] = {MODULE: MODULE_KIND}
     module = copy.copy(tree)
-    module.body = _extract(list(tree.body), chunks, "")
+    module.body = _extract(list(tree.body), chunks, "", kinds)
     chunks[MODULE] = [canonical(module)]
-    return {qual: _digest(parts) for qual, parts in chunks.items()}
+    return {qual: _digest(parts) for qual, parts in chunks.items()}, kinds
+
+
+def units_from_source(source: str, filename: str = "<unknown>") -> dict[str, str] | None:
+    """{qualname: hash} for every unit in ``source``; None if it doesn't parse."""
+    got = analyze(source, filename)
+    return got[0] if got else None
 
 
 def read_source(path: str | Path) -> str:
@@ -178,25 +190,34 @@ def units_from_file(path: str | Path) -> dict[str, str] | None:
     return units_from_source(src, str(path))
 
 
-def raw_hash(path: str | Path) -> str | None:
-    """Hash of the file's bytes with line endings normalized.
+def raw_hash_text(source: str) -> str:
+    """Hash of source text with line endings normalized.
 
     Used only to tell a cosmetic edit (raw changed, units didn't) from no edit at
     all; normalizing CRLF keeps a Windows checkout from looking edited.
     """
+    return hashlib.sha256(source.replace("\r\n", "\n").encode("utf-8")).hexdigest()[:HASH_LEN]
+
+
+def raw_hash(path: str | Path) -> str | None:
+    """``raw_hash_text`` of a file, decoded the way Python decodes source."""
     try:
-        data = Path(path).read_bytes()
-    except OSError:
+        return raw_hash_text(read_source(path))
+    except (OSError, SyntaxError, UnicodeDecodeError):
         return None
-    return hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest()[:HASH_LEN]
 
 
 def unit_of_qualname(qualname: str) -> str:
     """The unit a code object's ``co_qualname`` belongs to (used by function tracking).
 
-    ``f.<locals>.g`` -> ``f``; ``<lambda>``/``<genexpr>`` at module level -> ``<module>``.
+    Everything from the first ``<...>`` segment on belongs to what encloses it:
+    ``f.<locals>.g`` -> ``f``; ``Model.<lambda>`` (a lambda in a class body) ->
+    ``Model``; ``<lambda>``, ``<genexpr>`` or ``<generic parameters of f>`` at module
+    level -> ``<module>``.
     """
-    head = qualname.split(".<locals>.", 1)[0]
-    if head.startswith("<"):
-        return MODULE
-    return head
+    kept = []
+    for seg in qualname.split("."):
+        if seg.startswith("<"):
+            break
+        kept.append(seg)
+    return ".".join(kept) or MODULE

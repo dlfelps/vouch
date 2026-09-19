@@ -117,8 +117,9 @@ def collect(ctx: Context) -> list[Issue]:
         elif st.state == "accepted" and uses:
             issues.append(Issue("accepted", "info", f"run {run}: {st.summary()}", subject=f"run:{run}"))
         elif st.state == "cosmetic" and uses:
-            issues.append(Issue("cosmetic", "info", f"run {run}: code changed only in comments, "
-                                "docstrings or formatting", subject=f"run:{run}"))
+            issues.append(Issue("cosmetic", "info", f"run {run}: code changed, but only outside "
+                                "what it executed (comments, docstrings, formatting, or functions "
+                                "it never called)", subject=f"run:{run}"))
         if not uses:
             continue
         drift = st.of("env-drift")

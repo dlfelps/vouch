@@ -48,9 +48,10 @@ def test_implicit_run_records_everything(project):
     assert v == {"type": "float", "value": 0.9321, "fmt": ".1pct", "better": "higher",
                  "desc": "top-1 test accuracy", "site": "experiments/train.py:7"}
     units = rec["code"]["units"]
-    assert rec["code"]["granularity"] == "module"
+    assert rec["code"]["granularity"] == "function"
     assert {"src/models.py::score", "src/models.py::<module>",
             "experiments/train.py::<module>"} <= set(units)
+    assert "src/models.py::unused" not in units          # never executed
     assert set(rec["code"]["files"]) == {"src/models.py", "experiments/train.py"}
     assert rec["env"]["python"].count(".") == 2
 

@@ -802,29 +802,46 @@ Nested definitions and lambdas (`f.<locals>.g`, `<lambda>`, `<genexpr>`) belong 
 
 ### 8.2 Function-level tracking (Python ≥ 3.12)
 
-vouch uses `sys.monitoring` (PEP 669):
+On `import vouch`, vouch registers a `sys.monitoring` (PEP 669) `PY_START` callback under a free tool id. It tries 3, 4, 5 and 2 in that order, so debuggers (0) and coverage.py (1) are never displaced. The callback returns `DISABLE`, so it fires at most once per code object for the whole process. Its cost is one call per distinct function, however hot the run's loops are. Measured worst case, a tight pure-Python loop: 1–2%, within run-to-run noise. For code that spends its time in numpy or torch, the cost is zero.
 
-- It registers a `PY_START` callback under a free tool id (3 or 4 first, leaving `COVERAGE_ID` and `DEBUGGER_ID` free for coverage.py and debuggers).
-- Each code object fires the callback at most once, because the callback returns `DISABLE`. The overhead is one call per distinct function over the whole run, which is negligible even for training loops.
-- The callback keeps code objects from first-party files and maps each one to its unit through `co_qualname`, collapsing `<locals>`.
+It records two things:
+
+- **Executed units:** each code object's `co_qualname` is mapped to its unit, with anything from the first `<…>` segment on belonging to what encloses it. So `f.<locals>.g` maps to `f`, `Model.<lambda>` to `Model`, and module-level lambdas and genexprs to `<module>`.
+- **Source snapshots:** each file's text *as it was when the run first loaded it*. If `models.py` is edited halfway through a three-hour run, the record holds the code that ran, and the run warns: `models.py changed while the run was in progress; recorded the code that ran, so vouch check will report this run stale`.
+
+A run records, per first-party file:
+- every module and class unit, since they run at import
+- the functions it executed
 
 Consequences:
 
-- **Editing a function the run never executed does not make it stale.** This is the difference from module-level tracking, and it removes the noise that made asqc need a separate, non-failing "library drift" tier.
+- **Editing a function the run never executed doesn't make it stale.** The run is reported as `cosmetic`, "files changed, but not in anything this run executed", which passes. This is what removes the noise that led asqc to add a separate, non-failing "library drift" tier.
 - The staleness report names the unit: `src/models.py::ResNet.forward changed`.
-- Module and class units are always included for every first-party module loaded, because module-level code runs at import.
 
-**Fallbacks to module granularity**, where every first-party module in `sys.modules` counts as a whole-file unit:
+**Where precision isn't safe, files count whole.** The record lists each such file and why, under `code.whole_files`:
 
-- Python < 3.12.
-- No free monitoring tool id.
-- `freshness.granularity = "module"`.
-- Modules already imported when tracking started (§4.7).
-- **A run that spawned Python child processes.** `multiprocessing` start and `os.fork` are detected through a patched `BaseProcess.start` and `os.register_at_fork`. Children aren't traced, so function-level precision would be unsafe. The run record and the report say so: `granularity: module (child processes)`.
+| Situation | Reason recorded |
+|---|---|
+| a module imported before `import vouch` | `imported before vouch started tracking` (its import-time code ran unobserved) |
+| the entry script, if anything before `import vouch` could have called first-party code | `code ran before \`import vouch\`` |
+| the entry script, if vouch is imported inside a function | `vouch was imported from inside a function` |
+| code that ran but can't be found in the source | `executed code not found in the source (…)` |
 
-Python processes launched with `subprocess` are not detected. Use `vouch run` to wrap multi-process pipelines (§14).
+"Could have called first-party code" is decided from the AST of the statements before `import vouch`. Only calls whose root name is one of the script's own definitions, or a name imported from a first-party module, count, including decorators, default values, class bodies and base classes (applying a decorator or subclassing is a call). Imports, definitions, `sys.path.insert(...)`, `Path(__file__)`, `pd.DataFrame(...)` and other stdlib or third-party calls don't count.
 
-**First-party code** is every `.py` file under the project root (plus `python.first_party`), excluding `python.exclude` and anything inside `site-packages`/`dist-packages`. Third-party packages are tracked by version (`env-drift`), not by source.
+**The whole run falls back to module granularity** (`code.granularity: "module"`, with `code.why`) when:
+
+- the Python version has no `sys.monitoring` (< 3.12)
+- no monitoring tool id is free
+- `VOUCH_TRACE=0` is set
+- `[freshness] granularity = "module"` is configured (no `why` is recorded in this case)
+- **the run started Python child processes**, which aren't observed. Detection costs nothing: audit hooks see `os.fork`, and any `CreateProcess`, `posix_spawn` or `subprocess` whose command runs Python. When the record is written, multiprocessing's own process counter is also read, if the experiment imported it. Other programs (`git`, a shell tool) don't count. Neither do vouch's own `git` calls.
+
+An earlier version imported and patched `multiprocessing` at start-up to detect children. That measurably slowed hot loops (~8%), which is why detection is now lazy.
+
+**First-party code** is every `.py` file under the project root (plus `python.first_party`), excluding `python.exclude` and anything inside the interpreter's prefixes and `site-packages`/`dist-packages`. Third-party packages are tracked by version (`env-drift`), not by source.
+
+`vouch trace KEY` shows how each file was tracked (`tracked by function`, or `tracked whole -- <reason>`).
 
 ### 8.3 Inputs, artifacts and upstream staleness
 
@@ -839,7 +856,7 @@ Python processes launched with `subprocess` are not detected. Use `vouch run` to
 | State | Meaning | Default severity |
 |---|---|---|
 | `fresh` | every unit, input and artifact matches | ok |
-| `cosmetic` | files changed, but only in comments, docstrings or formatting | info |
+| `cosmetic` | files changed, but not in any unit the run depends on (comments, docstrings, formatting, or functions it never executed) | info |
 | `stale` | a unit's semantic hash changed, a unit disappeared, or an input changed | **error** |
 | `upstream-stale` | a run this one read from is stale | **error** |
 | `tampered` | an artifact on disk differs from its recorded hash | **error** |
@@ -1522,7 +1539,7 @@ Tooling: uv, pytest, argparse (no click, to keep the core dependency-free). Opti
 
 1. ~~Tooltip viewer support~~ **Resolved:** tooltips weren't portable (Chrome, Edge and PDF X show nothing), so `provenance=link` is the default: click-through links to a generated provenance appendix, which work in every viewer (§7.4).
 2. **Implicit-run exit status.** `sys.exit(n≠0)` can't be seen from `atexit` (§4.1). Is documenting "use an explicit run" enough?
-3. **`sys.monitoring` tool-id contention** with debuggers, profilers and coverage. The plan is ids 3 or 4 first, then a module-granularity fallback.
+3. ~~`sys.monitoring` tool-id contention~~ **Resolved:** ids 3, 4, 5, 2 are tried in turn; with none free the run records module granularity and says why (§8.2).
 4. **Coarse filesystem mtimes** (FAT, some network mounts) could make the stat-keyed hash cache miss a change. Hash when `mtime_ns` has 1-second granularity?
 5. **v2 candidates:**
    - `vouch reproduce RUN`: re-execute the recorded command in a temporary checkout and compare values within tolerance

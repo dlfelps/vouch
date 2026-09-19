@@ -19,5 +19,11 @@ from .values import Stat
 
 __version__ = "0.1.0.dev0"
 
+# Track which functions the experiment executes, from the moment vouch is imported
+# (SPEC 8.2). The CLI stops this at once; it has nothing to track.
+from .tracing import tracker as _tracker  # noqa: E402
+
+_tracker.start()
+
 __all__ = ["Run", "Stat", "active_run", "artifact", "claim", "input", "params", "record",
            "record_all", "run", "table", "__version__"]
