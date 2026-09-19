@@ -1,0 +1,89 @@
+site_name: vouch
+site_description: Every number in your paper, vouched for by the code that produced it.
+site_url: https://dlfelps.github.io/vouch/
+repo_url: https://github.com/dlfelps/vouch
+repo_name: dlfelps/vouch
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - toc.follow
+    - content.code.copy
+    - content.action.edit
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - Tutorial:
+      - Overview: tutorial/index.md
+      - 1. Record results: tutorial/01-record.md
+      - 2. Describe and find keys: tutorial/02-describe-and-find.md
+      - 3. Cite and build: tutorial/03-cite-and-build.md
+      - 4. Derived values and tables: tutorial/04-derived-and-tables.md
+      - 5. Check it and read it: tutorial/05-check.md
+      - 6. When the code changes: tutorial/06-when-code-changes.md
+      - 7. Submitting: tutorial/07-submitting-and-next.md
+  - Guide:
+      - Concepts: guide/concepts.md
+      - Project layout & config: guide/project-layout.md
+      - Recording (Python API): guide/recording.md
+      - Derived values, claims, tables: guide/derived-values.md
+      - Formatting: guide/formatting.md
+      - LaTeX interface: guide/latex.md
+      - Freshness: guide/freshness.md
+      - Change notification: guide/change-notification.md
+      - Provenance CSV: guide/provenance-csv.md
+      - Checks and lints: guide/checks-and-lints.md
+      - Non-Python experiments: guide/non-python-experiments.md
+      - Workflow integration: guide/workflow-integration.md
+  - CLI reference:
+      - Overview: cli/index.md
+      - Setup: cli/setup.md
+      - Inspect: cli/inspect.md
+      - Check & review: cli/check.md
+      - Authoring: cli/author.md
+      - Integrations: cli/integrations.md
+  - LLM & agents:
+      - Overview: llm/index.md
+      - Claude Code: llm/claude-code.md
+      - MCP server: llm/mcp-server.md
+  - Examples: examples.md
