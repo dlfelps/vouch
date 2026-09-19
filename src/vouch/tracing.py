@@ -32,6 +32,7 @@ import sys
 import sysconfig
 
 from .units import read_source, unit_of_qualname
+from .values import sanitize_key
 
 _PKG_DIR = os.path.normcase(os.path.dirname(os.path.abspath(__file__)))
 TOOL_IDS = (3, 4, 5, 2)        # leave 0 (debuggers) and 1 (coverage.py) alone
@@ -111,6 +112,14 @@ class Tracker:
         self.internal = 0                        # >0 while vouch itself runs a subprocess (git)
         self._candidates: dict[str, bool] = {}
         self._roots: tuple[str, ...] = ()
+        self.rules: list[dict] = []              # [[track]] in vouch.toml
+        self.auto: dict = {}                     # code object -> Tracked
+        self.pending: dict[int, tuple] = {}      # id(frame) -> (arguments, call site)
+        self.problems: list[str] = []
+        self._checked: set = set()
+        self._cfg = None
+        self._reported = False
+        self._exit_hook = False
 
     # -- which files are worth watching ---------------------------------------------
 
@@ -145,9 +154,136 @@ class Tracker:
                 self.executed.setdefault(n, set()).add(unit_of_qualname(code.co_qualname))
                 if n not in self.snapshots:
                     self._snapshot(fn)
+                if self.rules:
+                    t = self.auto.get(code)
+                    if t is None and code not in self._checked:
+                        self._checked.add(code)
+                        t = self._match(code)
+                    if t is not None:
+                        # a [[track]] function: keep firing, note this call's arguments
+                        frame = sys._getframe(1)
+                        from .track import arguments_from_frame
+                        self.pending[id(frame)] = (arguments_from_frame(code, frame.f_locals),
+                                                   self._site(frame.f_back))
+                        return None
         except Exception:  # a tracking bug must never break the experiment
             pass
         return sys.monitoring.DISABLE
+
+    def _on_return(self, code, offset, retval):
+        t = self.auto.get(code)
+        if t is not None:
+            try:
+                got = self.pending.pop(id(sys._getframe(1)), None)
+                if got is not None:
+                    t.record_safely(got[0], retval, got[1])
+            except Exception:  # pragma: no cover
+                pass
+
+    # -- [[track]] in vouch.toml: results recorded without a decorator -----------------
+
+    def configure(self, start_dir: str | None = None) -> None:
+        """Load ``[[track]]`` rules from the project's vouch.toml."""
+        from .config import Config, ConfigError, discover_root
+        from pathlib import Path
+        self.rules, self.problems = [], []
+        if start_dir is None:                  # the entry script's project, else the cwd
+            main_file = getattr(sys.modules.get("__main__"), "__file__", None)
+            start_dir = os.path.dirname(os.path.abspath(main_file)) if main_file else None
+        try:
+            root, _ = discover_root(Path(start_dir) if start_dir else None)
+            self._cfg = Config.load(root)
+        except (ConfigError, OSError):
+            return
+        raw = self._cfg.data.get("track") or []
+        if isinstance(raw, dict):
+            raw = [raw]
+        allowed = {"function", "over", "key", "name", "fmt", "desc", "unit", "better",
+                   "include", "exclude"}
+        for entry in raw:
+            if not isinstance(entry, dict) or "function" not in entry:
+                self.problems.append("every [[track]] needs function = \"path.py::name\"")
+                continue
+            unknown = sorted(set(entry) - allowed)
+            if unknown:
+                self.problems.append(f"[[track]] {entry['function']!r}: unknown field(s) {unknown}")
+            pats = entry["function"]
+            pats = [pats] if isinstance(pats, str) else list(pats)
+            over = entry.get("over", ())
+            self.rules.append({"patterns": pats, "matched": 0,
+                               "over": (over,) if isinstance(over, str) else tuple(over),
+                               "key": entry.get("key"), "name": entry.get("name"),
+                               "meta": {k: entry.get(k) for k in
+                                        ("fmt", "desc", "unit", "better", "include", "exclude")}})
+        if (self.rules or self.problems) and not self._exit_hook:
+            import atexit
+            atexit.register(self._report_at_exit)
+            self._exit_hook = True
+
+    def _site(self, frame) -> str:
+        if frame is None or self._cfg is None:
+            return "?"
+        return f"{self._cfg.rel(frame.f_code.co_filename)}:{frame.f_lineno}"
+
+    def _match(self, code):
+        """The Tracked for a code object a [[track]] rule names, or None."""
+        from fnmatch import fnmatchcase
+        from .track import (DECORATED, Tracked, TrackError, check_names, function_name_of,
+                            signature_order, template_fields)
+        if code in DECORATED or self._cfg is None or code.co_name.startswith("<"):
+            return None                                # modules, lambdas, comprehensions
+        rel = self._cfg.rel(code.co_filename)
+        qual = code.co_qualname
+        for rule in self.rules:
+            for pat in rule["patterns"]:
+                fpat, sep, qpat = pat.partition("::")
+                if not sep:
+                    fpat, qpat = "*", fpat
+                if not (fnmatchcase(rel, fpat) and fnmatchcase(qual, qpat)):
+                    continue
+                rule["matched"] += 1                       # named, even if it can't be tracked
+                if code.co_flags & 0x220:                  # generator, async generator
+                    self.problems.append(f"[[track]] {pat!r}: {qual} is a generator; decorate it "
+                                         f"with @vouch.track or return a value instead")
+                    return None
+                names = signature_order(code)
+                try:
+                    check_names(set(rule["over"]), names, f"[[track]] {pat!r} over=", qual)
+                    check_names(template_fields(rule["key"]), names, f"[[track]] {pat!r} key=", qual)
+                except TrackError as exc:
+                    self.problems.append(str(exc))
+                    return None
+                t = Tracked(name=sanitize_key(rule["name"]) if rule["name"] else function_name_of(qual),
+                            qualname=qual, code=code, over=rule["over"], key=rule["key"],
+                            meta=rule["meta"], via="[[track]]")
+                self.auto[code] = t
+                sys.monitoring.set_local_events(self.tool, code, sys.monitoring.events.PY_RETURN)
+                return t
+        return None
+
+    def unmatched(self) -> list[str]:
+        """[[track]] patterns that named no function this process ran."""
+        return [p for r in self.rules if not r["matched"] for p in r["patterns"]]
+
+    def report(self, warn, final: bool = False) -> None:
+        """Say what [[track]] couldn't do: problems as they are found (each run's end),
+        and -- once the script is over (``final``) -- rules that never matched."""
+        problems, self.problems = self.problems, []
+        for msg in problems:
+            warn(f"vouch.toml {msg}")
+        if not final or self._reported or not self.rules:
+            return
+        self._reported = True
+        if not self.active:
+            warn(f"vouch.toml [[track]] needs function tracking ({self.why_not}); "
+                 f"decorate the functions with @vouch.track instead")
+            return
+        for pat in self.unmatched():
+            warn(f"vouch.toml [[track]] {pat!r} matched no function that ran")
+
+    def _report_at_exit(self) -> None:
+        from .api import _warn
+        self.report(_warn, final=True)
 
     def _note_code(self, code) -> None:
         fn = code.co_filename
@@ -161,6 +297,7 @@ class Tracker:
     def start(self) -> None:
         if self.active:
             return
+        self.configure()               # read even when tracking can't start: to say so
         if os.environ.get("VOUCH_TRACE") == "0":
             self.why_not = "tracking disabled (VOUCH_TRACE=0)"
             return
@@ -176,6 +313,7 @@ class Tracker:
         try:
             mon.use_tool_id(tool, "vouch")
             mon.register_callback(tool, mon.events.PY_START, self._on_start)
+            mon.register_callback(tool, mon.events.PY_RETURN, self._on_return)
             mon.set_events(tool, mon.events.PY_START)
         except Exception as exc:  # pragma: no cover
             self.why_not = f"sys.monitoring refused: {exc}"
@@ -301,12 +439,14 @@ class Tracker:
         return False
 
     def stop(self) -> None:
+        self.rules, self.problems = [], []       # nothing ran under us: nothing to report
         if not self.active:
             return
         mon = sys.monitoring
         try:
             mon.set_events(self.tool, 0)
             mon.register_callback(self.tool, mon.events.PY_START, None)
+            mon.register_callback(self.tool, mon.events.PY_RETURN, None)
             mon.free_tool_id(self.tool)
         except Exception:  # pragma: no cover
             pass

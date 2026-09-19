@@ -599,6 +599,7 @@ class Run:
         if self._tracked:
             from .track import flush
             flush(self)
+        _tracker.report(_warn)
         record = self._build_record()
         proj = _project()
         ensure_store(proj.config.store)
@@ -900,6 +901,7 @@ def _finalize_implicit() -> None:
         _warn(f"run {run.id} discarded (the script raised an uncaught exception); "
               f"its previous record, if any, is unchanged")
         return
+    _tracker.report(_warn, final=True)         # the script is over: unmatched [[track]] rules
     try:
         run.finalize()
     except Exception as exc:  # pragma: no cover - last-chance reporting at exit

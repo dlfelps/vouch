@@ -111,6 +111,11 @@ def function_name(fn: Callable) -> str:
     return sanitize_key(".".join(kept) or fn.__name__)
 
 
+def function_name_of(qualname: str) -> str:
+    kept = [seg for seg in qualname.split(".") if not seg.startswith("<")]
+    return sanitize_key(".".join(kept) or qualname)
+
+
 def _shorten(key: str) -> str:
     if len(key) <= KEY_BUDGET:
         return key
@@ -203,6 +208,160 @@ def flush(run) -> None:
 
 
 # ---------------------------------------------------------------------------
+# one tracked function: shared by the decorator and by [[track]] in vouch.toml
+# ---------------------------------------------------------------------------
+
+DECORATED: set = set()      # code objects wrapped by @vouch.track (config tracking skips them)
+
+
+def check_names(names: set[str], params: list[str], what: str, fname: str) -> None:
+    bad = sorted(names - set(params))
+    if bad:
+        raise TrackError(f"{what} names {bad}, which {fname}() doesn't take")
+
+
+def template_fields(key: str | None) -> set[str]:
+    if not key:
+        return set()
+    import string
+    return {f for _, f, _, _ in string.Formatter().parse(key) if f}
+
+
+class Tracked:
+    """A function whose results are recorded: how to key a call, and how to record it."""
+
+    def __init__(self, *, name: str, qualname: str, code, over: tuple[str, ...] = (),
+                 key: str | None = None, meta: dict | None = None, via: str = "@vouch.track"):
+        self.fname, self.qualname, self.code = name, qualname, code
+        self.over, self.key, self.via = over, key, via
+        self.meta = {k: (meta or {}).get(k) for k in ("fmt", "desc", "unit", "better",
+                                                      "include", "exclude")}
+        self.warned_none = self.warned_desc = False
+
+    def record(self, arguments: dict[str, Any], result: Any, call_site: str) -> None:
+        """Record one call. ``arguments``: signature order, defaults applied, no self."""
+        from .api import _Notes, _project, _warn, active_run
+        who = f"{self.via} {self.fname}()"
+        if result is None:
+            if not self.warned_none:
+                _warn(f"{who} returned None; nothing recorded")
+                self.warned_none = True
+            return
+        arguments = dict(arguments)
+        over_values = {o: arguments.pop(o) for o in self.over if o in arguments}
+        base, left_out = call_key(self.fname, arguments, self.key)
+        cfg = _project().config
+        fn_ref = f"{cfg.rel(self.code.co_filename)}::{self.qualname}"
+        site = f"{cfg.rel(self.code.co_filename)}:{self.code.co_firstlineno}"
+        described = {k: describe(v) for k, v in arguments.items()}
+        flat = _flat_result(result)
+        if flat is None:
+            _warn(f"{who} returned a {type(result).__name__}; return a number, a dict of "
+                  f"numbers, a Stat or a DataFrame")
+            return
+        run = active_run()
+        if self.over:
+            comb = run._tracked.get(base)
+            if comb is None:
+                comb = run._tracked[base] = _Combined(base, fn_ref, described, self.over,
+                                                      self.meta, site)
+                comb.not_in_key = left_out
+            if over_values in comb.over_values:
+                _warn(f"{self.fname}() called twice with "
+                      f"{', '.join(f'{k}={v!r}' for k, v in over_values.items())}; both are "
+                      f"included in {base}")
+            comb.over_values.append(over_values)
+            comb.results.append(flat)
+            comb.call_sites.append(call_site)
+            return
+        notes = _Notes()
+        call = {"function": fn_ref, "args": described, "sites": [call_site]}
+        if left_out:
+            call["not_in_key"] = left_out
+        recorded = run._record_flat(base, flat, site=site, notes=notes, extra={"call": call},
+                                    **self.meta)
+        if self.warned_desc:
+            notes.no_desc.clear()
+        elif notes.no_desc:
+            self.warned_desc = True
+        run._report_bulk(notes, recorded, who=who)
+
+    def record_safely(self, arguments: dict[str, Any], result: Any, call_site: str) -> None:
+        """Bookkeeping must never break the experiment: report, don't raise."""
+        try:
+            self.record(arguments, result, call_site)
+        except Exception as exc:  # pragma: no cover - defensive
+            from .api import _warn
+            _warn(f"{self.via} could not record {self.fname}(): {exc!r}")
+            if os.environ.get("VOUCH_STRICT") == "1":
+                raise
+
+
+# ---------------------------------------------------------------------------
+# arguments, from a bound call or from a live frame
+# ---------------------------------------------------------------------------
+
+def arguments_from_bound(sig: inspect.Signature, bound: inspect.BoundArguments,
+                         skip_first: bool) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for i, (arg, value) in enumerate(bound.arguments.items()):
+        if i == 0 and skip_first:
+            continue
+        kind = sig.parameters[arg].kind
+        if kind is inspect.Parameter.VAR_KEYWORD:
+            out.update(sorted(value.items()))
+        elif kind is inspect.Parameter.VAR_POSITIONAL:
+            if value:
+                out[arg] = tuple(value)
+        else:
+            out[arg] = value
+    return out
+
+
+CO_VARARGS, CO_VARKEYWORDS = 0x04, 0x08
+
+
+def parameter_names(code) -> tuple[list[str], str | None, str | None, list[str]]:
+    """(positional, *args name, **kwargs name, keyword-only) from a code object.
+
+    A code object stores them as positional, keyword-only, *args, **kwargs; a
+    signature reads positional, *args, keyword-only, **kwargs.
+    """
+    names = code.co_varnames
+    npos, nkw = code.co_argcount, code.co_kwonlyargcount
+    pos, kwonly = list(names[:npos]), list(names[npos:npos + nkw])
+    i = npos + nkw
+    varargs = varkw = None
+    if code.co_flags & CO_VARARGS:
+        varargs, i = names[i], i + 1
+    if code.co_flags & CO_VARKEYWORDS:
+        varkw = names[i]
+    return pos, varargs, varkw, kwonly
+
+
+def signature_order(code) -> list[str]:
+    pos, varargs, varkw, kwonly = parameter_names(code)
+    return pos + ([varargs] if varargs else []) + kwonly + ([varkw] if varkw else [])
+
+
+def arguments_from_frame(code, f_locals: dict) -> dict[str, Any]:
+    """The arguments of a call that is just starting, read from its frame."""
+    pos, varargs, varkw, kwonly = parameter_names(code)
+    out: dict[str, Any] = {}
+    for i, name in enumerate(pos):
+        if i == 0 and name in ("self", "cls"):
+            continue
+        out[name] = f_locals.get(name)
+    if varargs and f_locals.get(varargs):
+        out[varargs] = tuple(f_locals[varargs])
+    for name in kwonly:
+        out[name] = f_locals.get(name)
+    if varkw:
+        out.update(sorted((f_locals.get(varkw) or {}).items()))
+    return out
+
+
+# ---------------------------------------------------------------------------
 # the decorator
 # ---------------------------------------------------------------------------
 
@@ -220,83 +379,22 @@ def track(fn: Callable | None = None, *, key: str | None = None, name: str | Non
                                better=better, include=include, exclude=exclude)
     over_names = (over,) if isinstance(over, str) else tuple(over)
     sig = inspect.signature(fn)
-    unknown = [o for o in over_names if o not in sig.parameters]
-    if unknown:
-        raise TrackError(f"@vouch.track(over=...) names {unknown}, which {fn.__name__}() "
-                         f"doesn't take")
+    check_names(set(over_names), list(sig.parameters), "@vouch.track(over=...)", fn.__name__)
+    check_names(template_fields(key), list(sig.parameters), f"@vouch.track(key={key!r})",
+                fn.__name__)
     params = list(sig.parameters.values())
     skip_first = bool(params) and params[0].name in ("self", "cls")
-    if key:
-        import string
-        fields = {f for _, f, _, _ in string.Formatter().parse(key) if f}
-        bad = sorted(fields - set(sig.parameters))
-        if bad:
-            raise TrackError(f"@vouch.track(key={key!r}) names {bad}, which {fn.__name__}() "
-                             f"doesn't take")
-    fname = sanitize_key(name) if name else function_name(fn)
-    meta = {"fmt": fmt, "desc": desc, "unit": unit, "better": better,
-            "include": include, "exclude": exclude}
-    warned_none = [False]
-    warned_desc = [False]        # a loop of calls warns about missing descriptions once
+    tracked = Tracked(name=sanitize_key(name) if name else function_name(fn),
+                      qualname=getattr(fn, "__qualname__", fn.__name__), code=fn.__code__,
+                      over=over_names, key=key,
+                      meta={"fmt": fmt, "desc": desc, "unit": unit, "better": better,
+                            "include": include, "exclude": exclude})
+    DECORATED.add(fn.__code__)
 
-    def record(args, kwargs, result, call_site):
-        from .api import _Notes, _project, _warn, active_run
-        if result is None:
-            if not warned_none[0]:
-                _warn(f"@vouch.track {fname}() returned None; nothing recorded")
-                warned_none[0] = True
-            return
+    def arguments(args, kwargs):
         bound = sig.bind(*args, **kwargs)
         bound.apply_defaults()
-        arguments: dict[str, Any] = {}
-        for i, (arg, value) in enumerate(bound.arguments.items()):
-            if i == 0 and skip_first:
-                continue
-            p = sig.parameters[arg]
-            if p.kind is inspect.Parameter.VAR_KEYWORD:
-                arguments.update(sorted(value.items()))
-            elif p.kind is inspect.Parameter.VAR_POSITIONAL:
-                if value:
-                    arguments[arg] = tuple(value)
-            else:
-                arguments[arg] = value
-        over_values = {o: arguments.pop(o) for o in over_names}
-        base, left_out = call_key(fname, arguments, key)
-        cfg = _project().config
-        code = fn.__code__
-        fn_ref = f"{cfg.rel(code.co_filename)}::{getattr(fn, '__qualname__', fn.__name__)}"
-        site = f"{cfg.rel(code.co_filename)}:{code.co_firstlineno}"
-        described = {k: describe(v) for k, v in arguments.items()}
-        flat = _flat_result(result)
-        if flat is None:
-            _warn(f"@vouch.track {fname}() returned a {type(result).__name__}; return a number, "
-                  f"a dict of numbers, a Stat or a DataFrame")
-            return
-        run = active_run()
-        if over_names:
-            comb = run._tracked.get(base)
-            if comb is None:
-                comb = run._tracked[base] = _Combined(base, fn_ref, described, over_names,
-                                                      meta, site)
-                comb.not_in_key = left_out
-            if over_values in comb.over_values:
-                _warn(f"@vouch.track {fname}() called twice with "
-                      f"{', '.join(f'{k}={v!r}' for k, v in over_values.items())}; both are "
-                      f"included in {base}")
-            comb.over_values.append(over_values)
-            comb.results.append(flat)
-            comb.call_sites.append(call_site)
-            return
-        notes = _Notes()
-        call = {"function": fn_ref, "args": described, "sites": [call_site]}
-        if left_out:
-            call["not_in_key"] = left_out
-        recorded = run._record_flat(base, flat, site=site, notes=notes, extra={"call": call}, **meta)
-        if warned_desc[0]:
-            notes.no_desc.clear()
-        elif notes.no_desc:
-            warned_desc[0] = True
-        run._report_bulk(notes, recorded, who=f"@vouch.track {fname}()")
+        return arguments_from_bound(sig, bound, skip_first)
 
     def caller_site() -> str:
         from .api import _site
@@ -307,7 +405,7 @@ def track(fn: Callable | None = None, *, key: str | None = None, name: str | Non
         async def async_wrapper(*args, **kwargs):
             site = caller_site()
             result = await fn(*args, **kwargs)
-            _safely(record, args, kwargs, result, site, fname)
+            tracked.record_safely(arguments(args, kwargs), result, site)
             return result
         async_wrapper.__vouch_track__ = True
         return async_wrapper
@@ -316,21 +414,10 @@ def track(fn: Callable | None = None, *, key: str | None = None, name: str | Non
     def wrapper(*args, **kwargs):
         site = caller_site()
         result = fn(*args, **kwargs)
-        _safely(record, args, kwargs, result, site, fname)
+        tracked.record_safely(arguments(args, kwargs), result, site)
         return result
     wrapper.__vouch_track__ = True
     return wrapper
-
-
-def _safely(record, args, kwargs, result, site, fname) -> None:
-    """Bookkeeping must never break the experiment: report, don't raise."""
-    try:
-        record(args, kwargs, result, site)
-    except Exception as exc:  # pragma: no cover - defensive
-        from .api import _warn
-        _warn(f"@vouch.track could not record {fname}(): {exc!r}")
-        if os.environ.get("VOUCH_STRICT") == "1":
-            raise
 
 
 def _span(values: list) -> str:

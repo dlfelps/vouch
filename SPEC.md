@@ -43,33 +43,42 @@ $ pip install vouch
 $ vouch init                      # finds paper/main.tex, writes vouch.toml, copies vouch.sty
 ```
 
-**Record** in the experiment: one line per number.
+**Record** in the experiment by decorating the function that computes the numbers. Every call's result is recorded, keyed by the function and its arguments, together with the call itself, so each number knows exactly which code and which arguments produced it (§4.3a):
 
 ```python
 # experiments/train.py
 import vouch
-...
-acc = evaluate(model, test_set)
-vouch.record("cifar.resnet.acc", acc, fmt=".1pct", desc="top-1 test accuracy on CIFAR-10",
-             better="higher")
+
+@vouch.track(over="seed")                      # seeds are combined into mean ± std
+def evaluate(dataset: str, model: str, seed: int = 0) -> dict:
+    ...
+    return {"acc": acc, "loss": loss}
+
+for seed in range(5):
+    evaluate("cifar", "resnet", seed=seed)     # → evaluate.cifar.resnet.acc, evaluate.cifar.resnet.loss
 ```
 
-Or register the experiment's whole metrics dict in one call. Formats, directions and descriptions come from `[metrics]` patterns in `vouch.toml` (§4.3):
+Formats, directions and descriptions come from `[metrics]` patterns in `vouch.toml`, written once for the whole project:
 
-```python
-vouch.record_all(evaluate(model, test_set), prefix="cifar.resnet")   # → cifar.resnet.acc, .loss, .f1, …
+```toml
+[metrics]
+"*.acc" = { fmt = ".1pct", better = "higher", desc = "top-1 test accuracy" }
 ```
 
 ```console
-$ python experiments/train.py --model resnet50     # run it normally
+$ python experiments/train.py                  # run it normally
 ```
+
+Two other ways to record, for other situations (§4):
+- **No change to the code at all:** list the function in `vouch.toml` (`[[track]] function = "experiments/train.py::evaluate"`) and run `python -m vouch.exec experiments/train.py` (§4.3b).
+- **A number that isn't a function's return value:** `vouch.record("cifar.resnet.acc", acc, desc=…)` for one value, or `vouch.record_all(metrics, prefix="cifar.resnet")` for a dict of them (§4.1–4.3).
 
 **Cite** it in the paper:
 
 ```latex
 \usepackage{vouch}
 ...
-ResNet-50 reaches \vouch{cifar.resnet.acc} top-1 accuracy.
+ResNet-50 reaches \vouch{evaluate.cifar.resnet.acc} top-1 accuracy.
 ```
 
 **Build** the generated values, then compile as usual:
@@ -77,7 +86,7 @@ ResNet-50 reaches \vouch{cifar.resnet.acc} top-1 accuracy.
 ```console
 $ vouch build
 wrote paper/vouch-values.tex (1 value), .vouch/CATALOG.md
-$ latexmk -pdf paper/main.tex      # "ResNet-50 reaches 93.2% top-1 accuracy." (hover: key, run, file:line, commit)
+$ latexmk -pdf paper/main.tex      # "ResNet-50 reaches 93.2 ± 0.4% top-1 accuracy." (click: the value's provenance)
 ```
 
 **Check** it, locally, in pre-commit, or in CI:
@@ -91,21 +100,21 @@ $ vouch check
 
 ```console
 $ vouch check
-✗ stale  cifar_resnet   src/models.py::ResNet.forward changed since the run (2026-09-12)
-         cites: cifar.resnet.acc (main.tex:41)
-         fix:   python experiments/train.py --model resnet50   (or: vouch accept cifar_resnet --why "...")
+✗ stale  experiments.train   src/models.py::ResNet.forward changed since the run (2026-09-12)
+         cites: evaluate.cifar.resnet.acc (main.tex:41)
+         fix:   python experiments/train.py   (or: vouch accept experiments.train --why "...")
 FAILED (1 error)
 ```
 
 **Re-run it**, and the value moved:
 
 ```console
-$ python experiments/train.py --model resnet50 && vouch build
+$ python experiments/train.py && vouch build
 wrote paper/vouch-values.tex (1 value, 1 CHANGED)
 
-  CHANGED  cifar.resnet.acc   93.2\% → 91.0\%   (Δ −2.2 pts, −2.4%)
-    main.tex:41   "ResNet-50 reaches \vouch{cifar.resnet.acc} top-1 accuracy, the best of all models."
-  → re-read the sentences above, then: vouch ack cifar.resnet.acc   (or: vouch review)
+  CHANGED  evaluate.cifar.resnet.acc   93.2 ± 0.4% → 91.0 ± 0.5%   (mean Δ −2.2 pts, −2.4%)
+    main.tex:41   "ResNet-50 reaches \vouch{evaluate.cifar.resnet.acc} top-1 accuracy, the best of all models."
+  → re-read the sentences above, then: vouch ack evaluate.cifar.resnet.acc   (or: vouch review)
 ```
 
 ---
@@ -247,6 +256,10 @@ input_hashing  = "content"                 # "content" | "stat" (size + mtime, f
 [inputs]
 external       = ["data/raw/"]             # source data a derive may read without a producing run
 
+[[track]]                                  # functions whose results are recorded, no decorator (see §4.3b)
+function       = "experiments/train.py::evaluate"
+over           = "seed"
+
 [metrics]                                  # project-wide defaults by key glob (see §4.3)
 "*.acc"  = { fmt = ".1pct", better = "higher", desc = "top-1 test accuracy, {1} on {0}" }
 "*.loss" = { fmt = ".3f",   better = "lower",  desc = "test loss, {1} on {0}" }
@@ -287,6 +300,14 @@ Every setting has a working default. `vouch init` writes only `[[paper]] main` p
 ---
 
 ## 4. Recording API (Python)
+
+There are three ways to record, and they combine freely in one run:
+
+| Way | Code change | Use it when |
+|---|---|---|
+| `@vouch.track` on the function that computes the numbers (§4.3a) | one decorator | **the default.** Each value records the call that produced it (function, every argument, call site), which is the strongest provenance vouch has and what makes `vouch recompute` possible |
+| `[[track]]` in `vouch.toml` + `python -m vouch.exec` (§4.3b) | none | the code can't or shouldn't import vouch: someone else's script, a frozen baseline, a quick look before committing to vouch |
+| `vouch.record` / `vouch.record_all` (§4.1–4.3) | one line per value or per dict | a number that isn't a function's return value: an aggregate computed inline, a value read from a results file, a param |
 
 ### 4.1 Zero-configuration use: an implicit run
 
@@ -439,6 +460,40 @@ The value's `site` is the function's definition. `call.sites` are where it was c
 
 Because a tracked value records the exact code, the function, and every argument (seeds included), it can in principle be **recomputed**. See `vouch recompute` in §20.
 
+### 4.3b Tracking without touching the code: `[[track]]` and `vouch.exec`
+
+The functions to track can be listed in `vouch.toml` instead of decorated. The effect is the same as `@vouch.track` with the same options (same keys, same `call` metadata, same `over=` combining):
+
+```toml
+[[track]]
+function = "experiments/train.py::evaluate"      # path::qualname; fnmatch patterns on both
+over     = "seed"
+desc     = "top-1 test accuracy"
+
+[[track]]
+function = ["models.py::Trainer.fit", "*::score_*"]   # a list is fine; no "::" means any file
+key      = "{dataset}.{model}"                   # the same fields as the decorator:
+                                                 # over key name fmt desc unit better include exclude
+```
+
+```console
+$ python -m vouch.exec experiments/train.py --epochs 90     # the script doesn't import vouch
+vouch: recorded run experiments.train: 12 value(s) → .vouch/runs/experiments.train.json
+```
+
+**How it works.** The function tracking of §8.2 already sees every first-party function start. For a function a rule names, it keeps listening to that one code object (a `PY_RETURN` local event), reads the arguments from the frame when the call starts, and records the return value when it ends. Functions no rule names cost exactly what they cost before: one callback, then disabled.
+
+**Running it.** Rules apply to any process that imports vouch: a script that already uses `vouch.record` picks up `[[track]]` with no further change. A script that doesn't import vouch runs under `python -m vouch.exec script.py args…`. That starts tracking before the script's first line, so the whole script is tracked by function (nothing ran "before `import vouch`"). The recorded command is the `vouch.exec` one, so the `fix:` line vouch prints for a stale run re-runs it the same way.
+
+**Mistakes are reported, never raised:**
+- A rule that names no function the script ran: `vouch: vouch.toml [[track]] 'train.py::evaluat' matched no function that ran`. This is reported once the script is over, so a function that runs only in a later `with vouch.run()` block isn't a false alarm.
+- A rule whose `over=` or `key=` names an argument the function doesn't take, or an unknown field: a warning naming the rule.
+- A generator or async generator (its return value isn't its result): skipped with a warning to decorate it or return a value.
+- A function that is also decorated with `@vouch.track`: the decorator wins; it is recorded once.
+- Tracking unavailable (Python < 3.12, `VOUCH_TRACE=0`): one warning saying `[[track]]` needs it and suggesting the decorator.
+
+**Limits.** Only first-party functions (§8.2) can be listed, not library code. Module bodies, lambdas and comprehensions never match. A call that raises records nothing.
+
 ### 4.4 API reference
 
 | Call | Purpose |
@@ -483,7 +538,7 @@ Warnings go to stderr. They never raise, because an experiment must never die ov
 
 ### 4.7 Code tracking
 
-Tracking starts at `import vouch` (see §8.2 for the mechanism). For complete coverage, import vouch before other first-party modules, or run the script as `python -m vouch.exec script.py …`. Modules that were already imported when tracking started are tracked at module granularity. That is correct, just coarser.
+Tracking starts at `import vouch` (see §8.2 for the mechanism). For complete coverage, import vouch before other first-party modules, or run the script as `python -m vouch.exec script.py …` (§4.3b), which starts tracking before the script's first line. Modules that were already imported when tracking started are tracked at module granularity. That is correct, just coarser.
 
 **Figure tracking.** When matplotlib is imported, before or after vouch, `Figure.savefig` is wrapped. Every figure saved to a path during a run becomes a figure artifact with its call site. Saving to a file object is not tracked.
 
@@ -1523,9 +1578,9 @@ Tooling: uv, pytest, argparse (no click, to keep the core dependency-free). Opti
 | M1 | **Recording**: store, semantic hashing, `run`/implicit run, values, `record_all` with `[metrics]` defaults, `Stat`, params, inputs, artifacts, atomic finalize | records are deterministic and round-trip; a crash writes nothing; a nested metrics dict registers in one call, fully described |
 | M2 | **LaTeX**: `vouch.sty` (tooltips, `final`, pending/unknown markers), scanner, formatter, `build`, `init`, provenance CSV, `export` | the example compiles with values and tooltips; the CSV matches its golden file |
 | M3 | **Freshness and changes**: module granularity, `check`, `status`, `trace`, `ls`, `accept`, exit codes, `hook install`; baseline, change classes, heuristics, build block, `changes`, `review`, `ack`, `on_change`, highlighting | editing code fails the check and names the file; a moved value is surfaced and acknowledged |
-| M4 | **Function-level tracking**: `sys.monitoring`, unit resolution, child-process fallback, changed-unit reporting | editing an unexecuted function stays fresh; editing an executed one names the unit |
-| M5 | **Claims, derived values, tables, figures**: values-module evaluation and caching, `derived.json`, claim helpers and `fragile`, tables with highlights and cell keys, the savefig hook, `\includegraphics` checks | the example's main table, derived gain and claim work end to end |
-| M6 | **Lint, annotations, wrapper**: lint port, `sync`, `vouch run` (incl. `--values`), `vouch import`, `vouch.exec`, README quickstart | lint fixtures pass; a shell example records; an existing results JSON imports with declared provenance |
+| M4 | **Function-level tracking**: `sys.monitoring`, unit resolution, child-process fallback, changed-unit reporting; `@vouch.track`, `[[track]]` and `python -m vouch.exec` | editing an unexecuted function stays fresh; editing an executed one names the unit; an unmodified script under `vouch.exec` records its `[[track]]` functions |
+| M5 | **Claims, derived values, tables, figures**: values-module evaluation and caching, `derived.json`, claim helpers and `fragile`, tables with highlights and cell keys, the savefig hook, `\includegraphics` checks, `vouch.alias` | the example's main table, derived gain and claim work end to end |
+| M6 | **Lint, annotations, wrapper**: lint port, `sync`, `vouch run` (incl. `--values`), `vouch import`, README quickstart | lint fixtures pass; a shell example records; an existing results JSON imports with declared provenance |
 | M7 | **LLM layer**: `expect`/`todo`, `search`, `cite`, `compare`, `suggest --apply`, `no-source`, catalog, JSON schema and `fix` everywhere, `init --agents` (skill, rules block, hook) | the agent dry run (§19.3) passes |
 | M8 | **MCP server** | tools callable from Claude Code |
 | M9 | *(optional)* **Dogfood** on a real paper, e.g. `quantum-nas/paper/structural_filter.tex` | the paper passes `check --strict` |
