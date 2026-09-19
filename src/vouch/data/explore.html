@@ -249,6 +249,7 @@ function detail(it) {
     add("because", it.explanation + (typeof it.margin === "number" ? `   (margin ${(100 * it.margin).toFixed(1)}%)` : ""));
   if (it.alias_of) add("alias of", h("a", { onclick: () => focusKey(it.alias_of) }, it.alias_of));
   if (it.call) add("recorded by", h("code", null, it.call));
+  if (it.time) add("time", it.time);
   if (it.each) add("each call", it.each);
   if (it.derived) {
     const d = it.derived;
@@ -297,6 +298,12 @@ function itemRow(fn, it) {
   row.append(detail(it));
   return row;
 }
+function duration(s) {
+  if (s < 1) return (+(s * 1000).toPrecision(3)) + " ms";
+  if (s < 120) return (+s.toPrecision(3)) + " s";
+  if (s < 7200) return (+(s / 60).toPrecision(3)) + " min";
+  return (+(s / 3600).toPrecision(3)) + " h";
+}
 function slug(s) { return "s-" + s.replace(/[^A-Za-z0-9]+/g, "-"); }
 
 function render() {
@@ -335,10 +342,11 @@ function render() {
     if (!fns.length) continue;
     const sid = slug(s.script);
     const runs = s.runs.map(r => h("span", { class: "run" },
-      "run " + r.id, stateTag(r.state),
+      h("span", null, "run " + r.id), stateTag(r.state),
       r.command ? h("code", { title: "copy the command", onclick: () => copy(r.command) }, r.command) : null,
-      r.started ? r.started.slice(0, 16) : null,
-      r.commit ? "git " + r.commit + (r.dirty ? " (dirty)" : "") : null));
+      r.started ? h("span", null, r.started.slice(0, 16)) : null,
+      typeof r.duration === "number" ? h("span", null, "took " + duration(r.duration)) : null,
+      r.commit ? h("span", null, "git " + r.commit + (r.dirty ? " (dirty)" : "")) : null));
     const sec = h("section", { class: "script" + (ui.closed.has(s.script) ? " closed" : ""), id: sid },
       h("div", { class: "script-head" },
         h("h2", { onclick: () => { ui.closed.has(s.script) ? ui.closed.delete(s.script) : ui.closed.add(s.script); sec.classList.toggle("closed"); } }, s.script),

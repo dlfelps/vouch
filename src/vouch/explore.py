@@ -163,7 +163,7 @@ class _Builder:
         return ch.readable(r.plain).replace("+/-", "±")
 
     def item(self, e: Entry) -> dict[str, Any]:
-        from .track import call_text, per_call_text
+        from .track import call_text, per_call_text, timing_text
         it: dict[str, Any] = {"key": e.key, "kind": e.kind, "value": self.shown(e),
                               "desc": e.desc or "", "state": _worst(self.states, source_runs(e)),
                               "cited": self.cites.get(e.key, []), "run": e.run or ""}
@@ -186,7 +186,9 @@ class _Builder:
         call = e.extra.get("call")
         if call:
             it["call"] = call_text(call)
-            each = per_call_text(call, limit=len(call.get("results") or []))
+            if call.get("seconds"):
+                it["time"] = timing_text(call)
+            each = per_call_text(call, limit=len(call.get("results") or []), times=True)
             if each:
                 it["each"] = each
             it["sites"] = list(call.get("sites") or [])

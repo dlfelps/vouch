@@ -465,13 +465,19 @@ A `returns=` whose length doesn't match what the function returned warns once an
 "call": {"function": "exp.py::evaluate",
          "args": {"dataset": "cifar", "model": "resnet", "lr": 0.001},
          "over": {"seed": [0, 1, 2, 3, 4]}, "calls": 5,
-         "results": [0.931, 0.935, 0.929, 0.934, 0.932], "sites": ["exp.py:20"]}
+         "results": [0.931, 0.935, 0.929, 0.934, 0.932],
+         "seconds": [612.4, 598.1, 605.9, 610.2, 601.7], "sites": ["exp.py:20"]}
 ```
 
 - The value's `site` is the function's definition. `call.sites` are where it was called.
+- `call.seconds` is how long each call took (wall clock, 4 significant digits), in the same order as `results`. It is always recorded, at the cost of two clock reads per call.
 - `call.results` holds each call's own result, in the order of the `over` lists (for combined values, up to 100 calls). The mean ± std in the paper can always be traced back to the per-seed numbers behind it.
 - `call.via` is `"[[track]]"` when the function was listed in `vouch.toml` rather than decorated (§4.3b), because the code itself then shows no decorator.
-- `vouch trace`, tooltips and the provenance appendix (§7.4) show all of it: `recorded by evaluate(dataset=cifar, model=resnet, lr=0.001) over seed=0..4 (5 calls)`, each call's result, and the function with its definition and call sites.
+- `vouch trace`, tooltips, the provenance appendix (§7.4) and `vouch explore` show all of it: `recorded by evaluate(dataset=cifar, model=resnet, lr=0.001) over seed=0..4 (5 calls)`, `took 10.1 ± 0.1 min per call, 50.5 min in all`, each call's result (with its duration in `trace` and `explore`: `seed=0: 0.931 (10.2 min)`), and the function with its definition and call sites.
+
+**Timing you can cite.** `time=True` also records the duration as a value of its own, `<key>.time`, in seconds (unit `s`): a float for a single call, a `Stat` over the `over=` calls (so `\vouch{evaluate.cifar.resnet.lr_0_001.time.mean}` is the mean seconds per seed), with each call's duration in its `call.results`. `time="walltime"` names it differently. It is off by default because most durations are not claims the paper makes. When they are ("one training run takes …"), timing is measured by the same code that produced the result, not remembered. If the function's result already has a field with that name, the result wins and a warning suggests another name. Durations differ on every run, so a cited one will be reported as changed after a re-run unless its printed precision hides the difference (then it is `hidden`, §9.2). Cite it with a coarse format.
+
+The clock is `time.perf_counter()` around the call. For an async function that includes the time spent awaiting. For work a GPU does asynchronously, it includes whatever the function waits for before returning, which is the usual case when a function returns a number.
 
 Freshness comes from §8.2: editing `evaluate` makes these values stale; editing an unrelated function doesn't.
 
@@ -496,7 +502,8 @@ desc     = "top-1 test accuracy"
 [[track]]
 function = ["models.py::Trainer.fit", "*::score_*"]   # a list is fine; no "::" means any file
 key      = "{dataset}.{model}"                   # the same fields as the decorator: over key
-returns  = ["mean", "std"]                       # returns name fmt desc unit better include exclude
+returns  = ["mean", "std"]                       # returns time name fmt desc unit better include exclude
+time     = true                                  # also record <key>.time (seconds)
 ```
 
 ```console
@@ -884,7 +891,7 @@ Hover tooltips turned out not to be portable. Tested in 2026-09: Chrome's and Ed
 
 - the key and its rendered value, with "cited on p. 1, 3" (each page number links back)
 - the description, the raw value, and the table it belongs to (for table cells)
-- for a value recorded by a tracked function (§4.3a, §4.3b): the call (`recorded by evaluate(dataset=cifar, model=resnet, lr=0.001) over seed=0..2 (3 calls)`), each call's own result (`each call: seed=0: 0.936888; seed=1: 0.922687; seed=2: 0.939121`), and the function with its definition and call sites (`function train.py::evaluate at train.py:6, called at train.py:20`), plus "listed in `vouch.toml` [[track]]" when it wasn't decorated
+- for a value recorded by a tracked function (§4.3a, §4.3b): the call (`recorded by evaluate(dataset=cifar, model=resnet, lr=0.001) over seed=0..2 (3 calls)`), how long the calls took (`took 60.5 +/- 9.94 ms per call, 181 ms in all`), each call's own result (`each call: seed=0: 0.936888; seed=1: 0.922687; seed=2: 0.939121`), and the function with its definition and call sites (`function train.py::evaluate at train.py:6, called at train.py:20`), plus "listed in `vouch.toml` [[track]]" when it wasn't decorated
 - run, file:line (for a tracked value, the definition above) and command
 - date, commit, and the run's current state (`fresh`, `STALE – models.py::f changed`, …)
 - for an unacknowledged change, "CHANGED: was 93.2% (acked 2026-09-10)" in the highlight color

@@ -231,7 +231,7 @@ def cmd_status(args) -> int:
     from .check import _cited
     try:
         cfg = _config(args)
-        ctx = plan(cfg, check_env=not args.no_env)
+        ctx = plan(cfg, need_paper=False, check_env=not args.no_env)
     except (BuildError, ConfigError, FileNotFoundError) as exc:
         return _fatal("status", exc)
     cited = _cited(ctx)
@@ -298,7 +298,7 @@ def cmd_ls(args) -> int:
     from .build import BuildError, plan
     try:
         cfg = _config(args)
-        ctx = plan(cfg, check_env=False)
+        ctx = plan(cfg, need_paper=False, check_env=False)
     except (BuildError, ConfigError, FileNotFoundError) as exc:
         return _fatal("ls", exc)
     counts: dict[str, int] = {}
@@ -321,6 +321,12 @@ def cmd_ls(args) -> int:
         if (args.cited and not n) or (args.uncited and n):
             continue
         r = rendered.get((key, ""))
+        if r is None and e.kind not in ("claim", "table"):       # no paper yet: render here
+            from .render import Options, RenderError, render
+            try:
+                r = render(e.raw, e.fmt, unit=e.unit, opts=Options.from_config(cfg))
+            except (RenderError, ValueError, TypeError):
+                r = None
         rows.append({"key": key, "kind": e.kind,
                      "value": ch.readable(r.plain) if r else ("HOLDS" if e.raw else "FALSE")
                      if e.kind == "claim" else "",
@@ -344,7 +350,7 @@ def cmd_trace(args) -> int:
     from .build import BuildError, plan
     try:
         cfg = _config(args)
-        ctx = plan(cfg, check_env=False)
+        ctx = plan(cfg, need_paper=False, check_env=False)
     except (BuildError, ConfigError, FileNotFoundError) as exc:
         return _fatal("trace", exc)
     target = args.target
@@ -425,11 +431,13 @@ def _trace_key(ctx, key: str, args, indent: str = "") -> int:
         st = ctx.states.get(e.run)
         out.append(f"  recorded  {e.site or '-'}   in run {e.run}")
         if e.extra.get("call"):
-            from .track import call_text, per_call_text
+            from .track import call_text, per_call_text, timing_text
             call = e.extra["call"]
             out.append(f"  by        {call_text(call)}"
                        + (f"   (listed in vouch.toml {call['via']})" if call.get("via") else ""))
-            each = per_call_text(call, limit=len(call.get("results") or []))
+            if call.get("seconds"):
+                out.append(f"  time      {timing_text(call)}")
+            each = per_call_text(call, limit=len(call.get("results") or []), times=True)
             if each:
                 out.append(f"  each call {each}")
             if call.get("sites"):

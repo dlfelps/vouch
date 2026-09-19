@@ -20,9 +20,11 @@ models, ``self`` -- are left out of it and described in the call metadata instea
 With ``over=``, calls that differ only in those arguments are combined when the run
 ends: numbers become a ``Stat`` (mean, std, n). Without it, every call is its own key.
 
-Every value records the call that produced it -- the function, its arguments, and
-where it was called -- so ``vouch trace`` and the PDF appendix can say
-``evaluate(dataset=cifar, model=resnet, lr=0.001) over seed=0..4``.
+Every value records the call that produced it -- the function, its arguments,
+where it was called, and how long each call took -- so ``vouch trace`` and the PDF
+appendix can say ``evaluate(dataset=cifar, model=resnet, lr=0.001) over seed=0..4``,
+``took 12.1 +/- 0.3 s per call``. With ``time=True`` the duration is also a value
+of its own, ``<key>.time`` (seconds), that the paper can cite.
 """
 
 from __future__ import annotations
@@ -32,6 +34,7 @@ import functools
 import hashlib
 import inspect
 import os
+from time import perf_counter
 from typing import Any, Callable
 
 from .values import (Stat, as_mapping, coerce_scalar, encode_cell, encode_param, flatten,
@@ -183,11 +186,13 @@ class _Combined:
     """Calls that differ only in their ``over=`` arguments, combined at run end."""
 
     def __init__(self, base: str, fn_ref: str, arguments: dict, over: tuple[str, ...],
-                 meta: dict, site: str, via: str = "@vouch.track"):
+                 meta: dict, site: str, via: str = "@vouch.track", time: str | None = None,
+                 fname: str = ""):
         self.base, self.fn_ref, self.arguments, self.over = base, fn_ref, arguments, over
-        self.meta, self.site, self.via = meta, site, via
+        self.meta, self.site, self.via, self.time, self.fname = meta, site, via, time, fname
         self.over_values: list[dict] = []
         self.results: list[dict[str, Any]] = []
+        self.seconds: list[float | None] = []
         self.call_sites: list[str] = []
         self.not_in_key: list[str] = []
 
@@ -221,14 +226,52 @@ def flush(run) -> None:
                 "over": {k: [describe(v) for v in vs] for k, vs in over_seen.items()},
                 "calls": len(comb.results),
                 "sites": sorted(set(comb.call_sites))}
+        timed = all(x is not None for x in comb.seconds) and len(comb.seconds) <= MAX_PER_CALL
+        if comb.seconds and timed:
+            call["seconds"] = list(comb.seconds)
         if comb.not_in_key:
             call["not_in_key"] = comb.not_in_key
         if comb.via != "@vouch.track":
             call["via"] = comb.via
         recorded = run._record_flat(base, flat, site=comb.site, notes=notes, extra={"call": call},
                                     call_results=per_call, **comb.meta)
+        if comb.time and comb.seconds and all(x is not None for x in comb.seconds):
+            over = ", ".join(comb.over)
+            recorded += _record_time(run, base, comb.time, fields, Stat.of(comb.seconds),
+                                     comb.fname, comb.site, notes, call,
+                                     f"; mean and std over {over}",
+                                     list(comb.seconds) if timed else None)
         run._report_bulk(notes, recorded, who=f"{comb.via} {comb.fn_ref}")
     run._tracked.clear()
+
+
+def _record_time(run, base: str, name: str, fields, value: Any, fname: str, site: str, notes,
+                 call: dict, detail: str = "", each: list | None = None) -> list[str]:
+    """``<base>.<name>``: the wall-clock seconds of the call(s), as a citable value."""
+    if name in fields:
+        notes.other.append(f"{fname}() returns a field named {name!r}, so its time is not "
+                           f"recorded as {base}.{name}; pass time=\"walltime\" (or another name)")
+        return []
+    return run._record_flat(base, {name: value}, site=site, notes=notes, extra={"call": call},
+                            unit="s", desc=f"wall-clock time of one {fname}() call, seconds{detail}",
+                            call_results={name: each} if each else None)
+
+
+def _secs(seconds: float | None) -> float | None:
+    """A duration as stored: four significant digits is plenty for a timing."""
+    return None if seconds is None else float(f"{seconds:.4g}")
+
+
+def check_time(time: Any, what: str) -> str | None:
+    """``time=`` as the key segment its value is recorded under, or None."""
+    if time is None or time is False:
+        return None
+    if time is True:
+        return "time"
+    if isinstance(time, str) and time and slug_segment(time) == time:
+        return time
+    raise TrackError(f"{what} is True, False or a name made of letters, digits, _ and -; "
+                     f"got {time!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -266,15 +309,17 @@ class Tracked:
 
     def __init__(self, *, name: str, qualname: str, code, over: tuple[str, ...] = (),
                  key: str | None = None, returns: tuple[str, ...] = (), meta: dict | None = None,
-                 via: str = "@vouch.track"):
+                 via: str = "@vouch.track", time: str | None = None):
         self.fname, self.qualname, self.code = name, qualname, code
-        self.over, self.key, self.returns, self.via = over, key, returns, via
+        self.over, self.key, self.returns, self.via, self.time = over, key, returns, via, time
         self.meta = {k: (meta or {}).get(k) for k in ("fmt", "desc", "unit", "better",
                                                       "include", "exclude")}
         self.warned_none = self.warned_desc = self.warned_returns = False
 
-    def record(self, arguments: dict[str, Any], result: Any, call_site: str) -> None:
-        """Record one call. ``arguments``: signature order, defaults applied, no self."""
+    def record(self, arguments: dict[str, Any], result: Any, call_site: str,
+               seconds: float | None = None) -> None:
+        """Record one call. ``arguments``: signature order, defaults applied, no self;
+        ``seconds``: how long it took (wall clock)."""
         from .api import _Notes, _project, _warn, active_run
         who = f"{self.via} {self.fname}()"
         if result is None:
@@ -305,7 +350,8 @@ class Tracked:
             comb = run._tracked.get(base)
             if comb is None:
                 comb = run._tracked[base] = _Combined(base, fn_ref, described, self.over,
-                                                      self.meta, site, self.via)
+                                                      self.meta, site, self.via, self.time,
+                                                      self.fname)
                 comb.not_in_key = left_out
             if over_values in comb.over_values:
                 _warn(f"{self.fname}() called twice with "
@@ -313,26 +359,33 @@ class Tracked:
                       f"included in {base}")
             comb.over_values.append(over_values)
             comb.results.append(flat)
+            comb.seconds.append(_secs(seconds))
             comb.call_sites.append(call_site)
             return
         notes = _Notes()
         call = {"function": fn_ref, "args": described, "sites": [call_site]}
+        if seconds is not None:
+            call["seconds"] = [_secs(seconds)]
         if left_out:
             call["not_in_key"] = left_out
         if self.via != "@vouch.track":
             call["via"] = self.via
         recorded = run._record_flat(base, flat, site=site, notes=notes, extra={"call": call},
                                     **self.meta)
+        if self.time and seconds is not None:
+            recorded += _record_time(run, base, self.time, flat, _secs(seconds), self.fname,
+                                     site, notes, call)
         if self.warned_desc:
             notes.no_desc.clear()
         elif notes.no_desc:
             self.warned_desc = True
         run._report_bulk(notes, recorded, who=who)
 
-    def record_safely(self, arguments: dict[str, Any], result: Any, call_site: str) -> None:
+    def record_safely(self, arguments: dict[str, Any], result: Any, call_site: str,
+                      seconds: float | None = None) -> None:
         """Bookkeeping must never break the experiment: report, don't raise."""
         try:
-            self.record(arguments, result, call_site)
+            self.record(arguments, result, call_site, seconds)
         except Exception as exc:  # pragma: no cover - defensive
             from .api import _warn
             _warn(f"{self.via} could not record {self.fname}(): {exc!r}")
@@ -410,21 +463,25 @@ def arguments_from_frame(code, f_locals: dict) -> dict[str, Any]:
 
 def track(fn: Callable | None = None, *, key: str | None = None, name: str | None = None,
           over: str | tuple[str, ...] = (), returns: str | tuple[str, ...] = (),
-          fmt: Any = None, desc: Any = None, unit: Any = None, better: Any = None,
-          include: Any = None, exclude: Any = None):
+          time: bool | str = False, fmt: Any = None, desc: Any = None, unit: Any = None,
+          better: Any = None, include: Any = None, exclude: Any = None):
     """Record a function's return value on every call, keyed by its arguments.
 
     ``over=`` names arguments (e.g. ``"seed"``) whose calls are combined into a Stat;
     ``key=`` is a template over argument names; ``returns=("mean", "std")`` names the
-    elements of a tuple result (else they are keyed ``.0``, ``.1``);
-    ``fmt``/``desc``/``unit``/``better``/``include``/``exclude`` work as in ``record_all``.
+    elements of a tuple result (else they are keyed ``.0``, ``.1``); ``time=True``
+    also records how long each call took as ``<key>.time`` (seconds; a Stat with
+    ``over=``), and ``time="walltime"`` names it; the duration is always kept in the
+    call's provenance. ``fmt``/``desc``/``unit``/``better``/``include``/``exclude``
+    work as in ``record_all``.
     """
     if fn is None:
-        return lambda f: track(f, key=key, name=name, over=over, returns=returns, fmt=fmt,
-                               desc=desc, unit=unit, better=better, include=include,
+        return lambda f: track(f, key=key, name=name, over=over, returns=returns, time=time,
+                               fmt=fmt, desc=desc, unit=unit, better=better, include=include,
                                exclude=exclude)
     over_names = (over,) if isinstance(over, str) else tuple(over)
     returns_names = check_returns(returns, "@vouch.track(returns=...)")
+    time_name = check_time(time, "@vouch.track(time=...)")
     sig = inspect.signature(fn)
     check_names(set(over_names), list(sig.parameters), "@vouch.track(over=...)", fn.__name__)
     check_names(template_fields(key), list(sig.parameters), f"@vouch.track(key={key!r})",
@@ -433,7 +490,7 @@ def track(fn: Callable | None = None, *, key: str | None = None, name: str | Non
     skip_first = bool(params) and params[0].name in ("self", "cls")
     tracked = Tracked(name=sanitize_key(name) if name else function_name(fn),
                       qualname=getattr(fn, "__qualname__", fn.__name__), code=fn.__code__,
-                      over=over_names, key=key, returns=returns_names,
+                      over=over_names, key=key, returns=returns_names, time=time_name,
                       meta={"fmt": fmt, "desc": desc, "unit": unit, "better": better,
                             "include": include, "exclude": exclude})
     DECORATED.add(fn.__code__)
@@ -451,8 +508,10 @@ def track(fn: Callable | None = None, *, key: str | None = None, name: str | Non
         @functools.wraps(fn)
         async def async_wrapper(*args, **kwargs):
             site = caller_site()
+            t0 = perf_counter()
             result = await fn(*args, **kwargs)
-            tracked.record_safely(arguments(args, kwargs), result, site)
+            elapsed = perf_counter() - t0
+            tracked.record_safely(arguments(args, kwargs), result, site, elapsed)
             return result
         async_wrapper.__vouch_track__ = True
         return async_wrapper
@@ -460,8 +519,10 @@ def track(fn: Callable | None = None, *, key: str | None = None, name: str | Non
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         site = caller_site()
+        t0 = perf_counter()
         result = fn(*args, **kwargs)
-        tracked.record_safely(arguments(args, kwargs), result, site)
+        elapsed = perf_counter() - t0
+        tracked.record_safely(arguments(args, kwargs), result, site, elapsed)
         return result
     wrapper.__vouch_track__ = True
     return wrapper
@@ -488,18 +549,50 @@ def call_text(call: dict) -> str:
     return text
 
 
-def per_call_text(call: dict, limit: int = 12) -> str:
-    """Each call's own result, labelled by its over= values: ``seed=0: 0.934, seed=1: 0.921``."""
+_UNITS = {"ms": 1e-3, "s": 1.0, "min": 60.0, "h": 3600.0}
+
+
+def _unit_for(seconds: float) -> str:
+    return "ms" if seconds < 1 else "s" if seconds < 120 else "min" if seconds < 7200 else "h"
+
+
+def duration_text(seconds: float) -> str:
+    """``340 ms``, ``12.1 s``, ``3.4 min``, ``2.1 h``."""
+    unit = _unit_for(float(seconds))
+    return f"{float(seconds) / _UNITS[unit]:.3g} {unit}"
+
+
+def timing_text(call: dict, ascii: bool = False) -> str:
+    """``took 12.1 s``, or ``took 12.2 ± 0.2 s per call, 36.6 s in all`` for over= calls."""
+    secs = [s for s in call.get("seconds") or [] if isinstance(s, (int, float))]
+    if not secs:
+        return ""
+    if len(secs) == 1:
+        return f"took {duration_text(secs[0])}"
+    st = Stat.of(secs)
+    unit = _unit_for(st.mean)
+    scale = _UNITS[unit]
+    pm = "+/-" if ascii else "±"
+    return (f"took {st.mean / scale:.3g} {pm} {st.std / scale:.3g} {unit} per call, "
+            f"{duration_text(sum(secs))} in all")
+
+
+def per_call_text(call: dict, limit: int = 12, times: bool = False) -> str:
+    """Each call's own result, labelled by its over= values: ``seed=0: 0.934, seed=1: 0.921``;
+    with ``times``, how long each took: ``seed=0: 0.934 (12.1 s)``."""
     from .values import decode_cell
     results = call.get("results")
     if not results:
         return ""
     over = call.get("over") or {}
+    secs = call.get("seconds") or []
     parts = []
     for i, r in enumerate(results[:limit]):
         label = ", ".join(f"{k}={vs[i]}" for k, vs in over.items() if i < len(vs))
         v = decode_cell(r)
         num = f"{v:.6g}" if isinstance(v, float) else str(v)
+        if times and i < len(secs) and isinstance(secs[i], (int, float)):
+            num += f" ({duration_text(secs[i])})"
         parts.append(f"{label}: {num}" if label else num)
     more = len(results) - limit
     return "; ".join(parts) + (f"; ... (+{more} more)" if more > 0 else "")

@@ -3,6 +3,7 @@
 import enum
 import json
 import pathlib
+import re
 
 import pytest
 from conftest import edit
@@ -130,9 +131,10 @@ def test_scalar_dict_and_nested_results(project):
     proc = project.run("exp.py", check=True)
     v = values(project)
     assert v["throughput.resnet.batch_64"]["value"] == 1200.0
-    assert v["throughput.resnet.batch_64"]["call"] == {
-        "function": "exp.py::throughput", "args": {"model": "resnet", "batch": 64},
-        "sites": ["exp.py:11"]}
+    call = dict(v["throughput.resnet.batch_64"]["call"])
+    assert len(call.pop("seconds")) == 1                      # how long the call took
+    assert call == {"function": "exp.py::throughput", "args": {"model": "resnet", "batch": 64},
+                    "sites": ["exp.py:11"]}
     assert v["throughput.resnet.batch_64"]["site"] == "exp.py:3"          # the definition
     assert set(k for k in v if k.startswith("metrics")) == {
         "metrics.vit.test.acc", "metrics.vit.test.f1.macro", "metrics.vit.test.f1.micro"}
@@ -363,7 +365,7 @@ def test_call_shows_in_trace_tooltip_and_appendix(project, capsys):
     out = capsys.readouterr().out
     assert "by        evaluate(dataset=cifar) over seed=0..2" in out
     assert "called at exp.py:8" in out
-    assert "each call seed=0: 0.9; seed=1: 0.91; seed=2: 0.92" in out
+    assert re.search(r"each call seed=0: 0\.9 \([\d.]+ ms\); seed=1: 0\.91 \([\d.]+ ms\)", out)
 
 
 def test_elements_of_a_tuple_value_are_citable(project, capsys):
@@ -386,3 +388,87 @@ def test_elements_of_a_tuple_value_are_citable(project, capsys):
     assert r"\vouch@set{own.0}{}{7}" in text                 # a recorded key beats an element
     assert cli.main(["trace", "--root", str(project.root), "ci.1"]) == 0
     assert "95% interval (element 1)" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# timing
+# ---------------------------------------------------------------------------
+
+def test_duration_and_timing_text():
+    from vouch.track import duration_text, timing_text
+    assert [duration_text(s) for s in (0.00034, 0.34, 12.14, 204, 7560)] == [
+        "0.34 ms", "340 ms", "12.1 s", "3.4 min", "2.1 h"]
+    assert timing_text({"seconds": [12.1]}) == "took 12.1 s"
+    assert timing_text({"seconds": [12.0, 12.2, 12.4]}) == "took 12.2 ± 0.2 s per call, 36.6 s in all"
+    assert timing_text({"seconds": [12.0, 12.2, 12.4]}, ascii=True).startswith("took 12.2 +/- 0.2 s")
+    assert timing_text({"seconds": [0.5, 90.0]}) == "took 45.2 ± 63.3 s per call, 90.5 s in all"
+    assert timing_text({"seconds": [0.05, 0.07]}) == "took 60 ± 14.1 ms per call, 120 ms in all"
+    assert timing_text({}) == ""
+
+
+def test_calls_are_timed(project):
+    project.write("exp.py", '''
+        import time
+        import vouch
+
+        @vouch.track(over="seed", time=True, desc="acc")
+        def train(model, seed=0):
+            time.sleep(0.03)
+            return {"acc": 0.9 + seed / 100}
+
+        @vouch.track(time="walltime", desc="throughput")
+        def bench(model):
+            time.sleep(0.02)
+            return 1200.0
+
+        @vouch.track(desc="plain")
+        def plain(x):
+            return float(x)
+
+        @vouch.track(time=True, desc="clash")
+        def clash(x):
+            return {"time": 1.0, "acc": 0.5}
+
+        for s in range(3):
+            train("resnet", seed=s)
+        bench("resnet")
+        plain(1)
+        clash(1)
+    ''')
+    proc = project.run("exp.py", check=True)
+    v = values(project)
+    secs = v["train.resnet.acc"]["call"]["seconds"]
+    assert len(secs) == 3 and all(0.025 < s < 5 for s in secs)
+    t = v["train.resnet.time"]
+    assert t["type"] == "stat" and t["unit"] == "s" and decode("stat", t["value"]).n == 3
+    assert t["call"]["results"] == secs and "mean and std over seed" in t["desc"]
+    assert 0.015 < v["bench.resnet.walltime"]["value"] < 5
+    assert v["bench.resnet.walltime"]["call"]["seconds"] == [v["bench.resnet.walltime"]["value"]]
+    assert "plain.x_1.time" not in v and len(v["plain.x_1"]["call"]["seconds"]) == 1
+    assert v["clash.x_1.time"]["value"] == 1.0                   # the result's own field wins
+    assert "clash() returns a field named 'time'" in proc.stderr
+
+
+def test_timing_shows_in_trace_and_the_appendix(project, capsys):
+    project.write("vouch.toml", '[[paper]]\nmain = "paper/main.tex"\n')
+    project.write("paper/main.tex", "\\documentclass{article}\n\\usepackage{vouch}\n"
+                  "\\begin{document}\\vouch{f.acc}\\end{document}\n")
+    project.write("exp.py", '''
+        import vouch
+
+        @vouch.track(over="seed", desc="acc")
+        def f(seed=0):
+            return {"acc": 0.9}
+
+        for s in range(2):
+            f(seed=s)
+    ''')
+    project.run("exp.py", check=True)
+    assert cli.main(["build", "--root", str(project.root)]) == 0
+    text = (project.root / "paper/vouch-values.tex").read_text(encoding="utf-8")
+    prov = next(ln for ln in text.splitlines() if ln.startswith(r"\vouch@prov{f.acc}"))
+    assert "took " in prov and "+/-" in prov and "per call" in prov
+    capsys.readouterr()
+    assert cli.main(["trace", "--root", str(project.root), "f.acc"]) == 0
+    out = capsys.readouterr().out
+    assert "  time      took " in out and "each call seed=0: 0.9 (" in out

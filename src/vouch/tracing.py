@@ -30,6 +30,7 @@ import os
 import site
 import sys
 import sysconfig
+from time import perf_counter
 
 from .units import read_source, unit_of_qualname
 from .values import sanitize_key
@@ -164,7 +165,7 @@ class Tracker:
                         frame = sys._getframe(1)
                         from .track import arguments_from_frame
                         self.pending[id(frame)] = (arguments_from_frame(code, frame.f_locals),
-                                                   self._site(frame.f_back))
+                                                   self._site(frame.f_back), perf_counter())
                         return None
         except Exception:  # a tracking bug must never break the experiment
             pass
@@ -173,10 +174,11 @@ class Tracker:
     def _on_return(self, code, offset, retval):
         t = self.auto.get(code)
         if t is not None:
+            end = perf_counter()
             try:
                 got = self.pending.pop(id(sys._getframe(1)), None)
                 if got is not None:
-                    t.record_safely(got[0], retval, got[1])
+                    t.record_safely(got[0], retval, got[1], end - got[2])
             except Exception:  # pragma: no cover
                 pass
 
@@ -198,7 +200,7 @@ class Tracker:
         raw = self._cfg.data.get("track") or []
         if isinstance(raw, dict):
             raw = [raw]
-        allowed = {"function", "over", "key", "returns", "name", "fmt", "desc", "unit",
+        allowed = {"function", "over", "key", "returns", "time", "name", "fmt", "desc", "unit",
                    "better", "include", "exclude"}
         for entry in raw:
             if not isinstance(entry, dict) or "function" not in entry:
@@ -210,13 +212,14 @@ class Tracker:
             pats = entry["function"]
             pats = [pats] if isinstance(pats, str) else list(pats)
             over = entry.get("over", ())
-            from .track import TrackError, check_returns
+            from .track import TrackError, check_returns, check_time
             try:
                 returns = check_returns(entry.get("returns"), f"[[track]] {entry['function']!r} returns=")
+                time_name = check_time(entry.get("time"), f"[[track]] {entry['function']!r} time=")
             except TrackError as exc:
                 self.problems.append(str(exc))
                 continue
-            self.rules.append({"patterns": pats, "matched": 0, "returns": returns,
+            self.rules.append({"patterns": pats, "matched": 0, "returns": returns, "time": time_name,
                                "over": (over,) if isinstance(over, str) else tuple(over),
                                "key": entry.get("key"), "name": entry.get("name"),
                                "meta": {k: entry.get(k) for k in
@@ -261,7 +264,8 @@ class Tracker:
                     return None
                 t = Tracked(name=sanitize_key(rule["name"]) if rule["name"] else function_name_of(qual),
                             qualname=qual, code=code, over=rule["over"], key=rule["key"],
-                            returns=rule["returns"], meta=rule["meta"], via="[[track]]")
+                            returns=rule["returns"], time=rule["time"], meta=rule["meta"],
+                            via="[[track]]")
                 self.auto[code] = t
                 sys.monitoring.set_local_events(self.tool, code, sys.monitoring.events.PY_RETURN)
                 return t

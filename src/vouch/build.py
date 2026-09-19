@@ -158,11 +158,13 @@ def _call_line(e: Entry) -> str:
 
 def _call_lines(e: Entry) -> list[str]:
     """What @vouch.track / [[track]] knows about the call, one plain line per fact."""
-    from .track import per_call_text, sites_text
+    from .track import per_call_text, sites_text, timing_text
     call = e.extra.get("call")
     if not call:
         return []
     lines = [_call_line(e)]
+    if call.get("seconds"):
+        lines.append(timing_text(call, ascii=True))
     each = per_call_text(call)
     if each:
         lines.append(f"each call: {each}")
@@ -266,8 +268,10 @@ def _derived_latex(e: Entry, lines: list[str], change: ch.Change | None) -> str:
 def _call_latex(e: Entry, call: dict) -> list[str]:
     """The appendix lines for a tracked value: the call, each call's result, the code."""
     from .render import tex_escape as esc
-    from .track import per_call_text, sites_text
+    from .track import per_call_text, sites_text, timing_text
     lines = [esc(_call_line(e))]
+    if call.get("seconds"):
+        lines.append(esc(timing_text(call, ascii=True)))
     each = per_call_text(call)
     if each:
         lines.append("each call: " + esc(each))
@@ -505,7 +509,7 @@ def papers(cfg: Config) -> list[dict]:
 
 
 def plan(cfg: Config, *, check_env: bool = True, only: list[dict] | None = None,
-         evaluate: bool = False) -> Context:
+         evaluate: bool = False, need_paper: bool = True) -> Context:
     """Everything a build would write, and what is wrong. ``evaluate`` re-runs the
     definitions in vouch_values.py when they are out of date (``vouch build``);
     otherwise their last results are used, and staleness is reported."""
@@ -519,7 +523,13 @@ def plan(cfg: Config, *, check_env: bool = True, only: list[dict] | None = None,
                for p in idx.problems + idx.conflicts()]
     project += outcome.issues
     states = assess(cfg, idx.runs, check_env=check_env)
-    plans = [prepare_paper(cfg, idx, p) for p in (only or papers(cfg))]
+    if only is not None:
+        chosen = only
+    elif need_paper or cfg.data.get("paper"):
+        chosen = papers(cfg)
+    else:
+        chosen = []                     # ls, trace, status: useful before there is a paper
+    plans = [prepare_paper(cfg, idx, p) for p in chosen]
     baseline = ch.load_baseline(cfg)
     current, cites = ch.currents(idx, plans)
     changes = ch.compute(cfg, baseline, current, cites)

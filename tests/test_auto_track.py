@@ -62,6 +62,7 @@ def test_listed_functions_are_recorded_with_their_calls(project):
     t = v["throughput.resnet.batch_64"]
     assert t["value"] == 1200.0 and t["desc"] == "images per second" and t["unit"] == "img/s"
     assert t["site"] == "models.py:9"                                  # the definition
+    assert len(t["call"].pop("seconds")) == 1
     assert t["call"] == {"function": "models.py::throughput",
                          "args": {"model": "resnet", "batch": 64}, "sites": ["exp.py:4"],
                          "via": "[[track]]"}
@@ -118,6 +119,29 @@ def test_returns_names_tuple_elements(project):
     assert v["boot.vit.mean"]["value"] == 0.9 and v["boot.vit.std"]["value"] == 0.01
     assert v["boot.vit.std"]["desc"] == "bootstrap accuracy (std)"
     assert v["boot.vit.std"]["call"]["via"] == "[[track]]"
+
+
+def test_config_tracked_calls_are_timed(project):
+    project.write("vouch.toml", '''
+        [[track]]
+        function = "exp.py::slow"
+        time = true
+        desc = "v"
+    ''')
+    project.write("exp.py", '''
+        import time
+        import vouch
+
+        def slow(x):
+            time.sleep(0.02)
+            return float(x)
+
+        slow(1)
+    ''')
+    project.run("exp.py", check=True)
+    v = values(project)
+    assert 0.015 < v["slow.x_1"]["call"]["seconds"][0] < 5
+    assert v["slow.x_1.time"]["value"] == v["slow.x_1"]["call"]["seconds"][0]
 
 
 def test_a_decorated_function_is_recorded_once(project):

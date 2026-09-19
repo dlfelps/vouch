@@ -69,7 +69,8 @@ def test_values_are_grouped_by_script_then_function(proj):
     assert acc["key"] == "evaluate.cifar.resnet.acc" and acc["value"] == "91.0 ± 1.0%"
     assert acc["snippet"] == "\\vouch{evaluate.cifar.resnet.acc}"
     assert acc["call"] == "evaluate(dataset=cifar, model=resnet) over seed=0..2 (3 calls)"
-    assert acc["each"].startswith("seed=0: 0.9; seed=1: 0.91")
+    assert acc["each"].startswith("seed=0: 0.9 (") and "; seed=1: 0.91 (" in acc["each"]
+    assert acc["time"].startswith("took ") and "per call" in acc["time"]
     assert [p["name"] for p in acc["parts"]][:3] == ["mean", "std", "n"]
     assert acc["state"] == "fresh" and acc["cited"] == []
     # a record() inside main() sits under main; a claim at top level under "top level"
