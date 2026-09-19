@@ -22,7 +22,7 @@ from typing import Any
 
 from .config import Config
 from .freshness import now, who
-from .index import Index
+from .index import Index, origin
 from .store import atomic_write_text
 from .values import Stat, encode
 
@@ -155,15 +155,18 @@ def currents(idx: Index, plans) -> tuple[dict[str, Current], dict[str, list[Citi
             if k in cur:          # cited by several papers: merge their formats
                 rendered = sorted(set(cur[k].rendered) | set(rendered))
                 plain = sorted(set(cur[k].plain) | set(plain))
-            cur[k] = Current(k, "value", kind, payload, rendered, plain, f"run:{e.run}")
+            cur[k] = Current(k, "value", kind, payload, rendered, plain, origin(e))
         for c in doc.citations:
             if c.kind == "claim":
                 e = idx.get(c.key)
                 if e is not None and e.kind == "claim":
-                    cur[c.key] = Current(c.key, "claim", "claim",
-                                         {"holds": bool(e.raw), "values": e.extra.get("values") or {}},
-                                         ["HOLDS" if e.raw else "FALSE"],
-                                         ["HOLDS" if e.raw else "FALSE"], f"run:{e.run}")
+                    word = "HOLDS" if e.raw else "FALSE"
+                    if e.extra.get("explanation"):
+                        word += f" ({e.extra['explanation']})"
+                    raw = {"holds": bool(e.raw), "values": e.extra.get("values") or {}}
+                    if e.extra.get("margin") is not None:
+                        raw["margin"] = e.extra["margin"]
+                    cur[c.key] = Current(c.key, "claim", "claim", raw, [word], [word], origin(e))
     return cur, cites
 
 

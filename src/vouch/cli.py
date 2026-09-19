@@ -15,6 +15,7 @@ from . import __version__
 from . import changes as ch
 from . import console as C
 from .config import Config, ConfigError, discover_root
+from .index import origin, source_runs
 
 EXIT_OK, EXIT_FAIL, EXIT_UNVERIFIED = 0, 1, 2
 
@@ -130,6 +131,14 @@ def cmd_build(args) -> int:
             acknowledged=[c.to_json() for c in res.auto_acked]))
         return EXIT_OK
     written = set(res.written)
+    dv = res.ctx.derived
+    if dv is not None and dv.evaluated:
+        n = len((res.ctx.idx.derived_doc or {}).get("definitions") or {})
+        C.out(f"vouch build: evaluated {', '.join(dv.modules)} ({n} definition{'s' if n != 1 else ''})"
+              f" -> {cfg.rel(cfg.store / 'derived.json')}"
+              + ("" if dv.written else " (unchanged)"))
+    elif dv is not None and dv.removed is not None:
+        C.out(f"vouch build: removed {cfg.rel(dv.removed)} (no values modules)")
     for pl in res.plans:
         c = pl.counts
         touched = [p for p in pl.files if p in written]
@@ -265,6 +274,26 @@ def _match(pattern: str | None, key: str) -> bool:
     return pattern.lower() in key.lower()
 
 
+def _state_of(ctx, e) -> str:
+    """The state of the runs a value rests on: the worst of them, for a derived value."""
+    from .provenance import _freshness
+    return _freshness(ctx, source_runs(e))
+
+
+def _feeds(ctx, key: str) -> list[str]:
+    """Derived keys whose definitions read ``key`` (or something under it)."""
+    idx = ctx.idx
+    out = []
+    for dk, d in sorted(((idx.derived_doc or {}).get("definitions") or {}).items()):
+        for dep in d.get("deps") or {}:
+            e = idx.get(dep)
+            real = e.extra.get("alias_of", dep) if e is not None else dep
+            if real == key or real.startswith(key + ".") or dep == key:
+                out.append(f"{dk} ({d.get('kind', 'value') if d.get('kind') != 'value' else 'derived'})")
+                break
+    return out
+
+
 def cmd_ls(args) -> int:
     from .build import BuildError, plan
     try:
@@ -292,11 +321,11 @@ def cmd_ls(args) -> int:
         if (args.cited and not n) or (args.uncited and n):
             continue
         r = rendered.get((key, ""))
-        st = ctx.states.get(e.run or "")
         rows.append({"key": key, "kind": e.kind,
                      "value": ch.readable(r.plain) if r else ("HOLDS" if e.raw else "FALSE")
                      if e.kind == "claim" else "",
-                     "desc": e.desc or "", "run": e.run or "", "state": st.state if st else "",
+                     "desc": e.desc or "", "run": e.run or "", "origin": origin(e),
+                     "state": _state_of(ctx, e),
                      "cited": n, "fmt": e.fmt or "", "unit": e.unit or "", "better": e.better or ""})
     if args.json:
         print(_envelope("ls", True, keys=rows))
@@ -370,6 +399,27 @@ def _trace_key(ctx, key: str, args, indent: str = "") -> int:
         out.append(f"  desc      {e.desc}" + (f"   · better: {e.better}" if e.better else ""))
     if e.kind == "table-cell":
         out.append(f"  table     {e.parent}")
+    if e.extra.get("alias_of"):
+        out.append(f"  alias of  {e.extra['alias_of']}")
+    if e.kind == "claim" and e.extra.get("explanation"):
+        m = e.extra.get("margin")
+        out.append(f"  because   {e.extra['explanation']}"
+                   + (f"   (margin {m:.1%})" if isinstance(m, (int, float)) else ""))
+    d = e.extra.get("derived")
+    if d:
+        out.append(f"  derived   {d.get('function', '?')}   at {d.get('site', '?')}")
+        deps = [k for k in d.get("deps") or [] if not k.startswith("keys:")]
+        for k in deps[:12]:
+            de = idx.get(k)
+            out.append(f"  from      {k} = {_num(de.raw) if de is not None else '?'}")
+        if len(deps) > 12:
+            out.append(f"            (+{len(deps) - 12} more)")
+        for path in sorted(d.get("inputs") or {}):
+            out.append(f"  input     {path}")
+        runs = d.get("runs") or []
+        if runs:
+            out.append("  runs      " + ", ".join(
+                f"{r} ({ctx.states[r].state if r in ctx.states else '?'})" for r in runs))
     if e.run:
         rec = idx.runs.get(e.run) or {}
         st = ctx.states.get(e.run)
@@ -409,6 +459,9 @@ def _trace_key(ctx, key: str, args, indent: str = "") -> int:
         for path in sorted(rec.get("inputs") or {}):
             bad = st and any(r.subject == path for r in st.reasons)
             out.append(f"  input     {path} · {'CHANGED' if bad else 'unchanged'}")
+    feeds = _feeds(ctx, e.extra.get("alias_of", key))
+    if feeds:
+        out.append(f"  feeds     {' · '.join(feeds)}")
     where = [f"{c.file}:{c.line}" for pl in ctx.plans for c in pl.doc.citations
              if c.key == key or (c.kind == "table" and e.parent == c.key)]
     out.append(f"  cited     {', '.join(dict.fromkeys(where)) or '(not cited)'}")
@@ -680,8 +733,10 @@ def _utf8_when_piped() -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from . import figures
     from .tracing import tracker
     tracker.stop()                     # the CLI runs no experiment; nothing to track
+    figures.disable()                  # nor any figure to record (vouch_values.py may plot)
     _utf8_when_piped()
     parser = make_parser()
     args = parser.parse_args(argv)

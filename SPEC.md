@@ -260,6 +260,10 @@ external       = ["data/raw/"]             # source data a derive may read witho
 function       = "experiments/train.py::evaluate"
 over           = "seed"
 
+[tables.main]                              # presentation overrides for a recorded or derived table (§5.4)
+highlight = { acc = "max" }
+midrules  = [2]
+
 [metrics]                                  # project-wide defaults by key glob (see §4.3)
 "*.acc"  = { fmt = ".1pct", better = "higher", desc = "top-1 test accuracy, {1} on {0}" }
 "*.loss" = { fmt = ".3f",   better = "lower",  desc = "test loss, {1} on {0}" }
@@ -561,7 +565,9 @@ Warnings go to stderr. They never raise, because an experiment must never die ov
 
 Tracking starts at `import vouch` (see §8.2 for the mechanism). For complete coverage, import vouch before other first-party modules, or run the script as `python -m vouch.exec script.py …` (§4.3b), which starts tracking before the script's first line. Modules that were already imported when tracking started are tracked at module granularity. That is correct, just coarser.
 
-**Figure tracking.** When matplotlib is imported, before or after vouch, `Figure.savefig` is wrapped. Every figure saved to a path during a run becomes a figure artifact with its call site. Saving to a file object is not tracked.
+**Figure tracking.** When matplotlib is imported, before or after vouch, `Figure.savefig` is wrapped (and with it `plt.savefig`). Every figure saved to a path while vouch is recording becomes a figure artifact of the active run, with the file:line of the `savefig` call. A path without an extension gets the one matplotlib adds (`format=` or `rcParams["savefig.format"]`). Saving to a file object is not tracked.
+
+vouch never imports matplotlib. If it is already loaded, it is patched at `import vouch`. Otherwise a finder on `sys.meta_path` waits for `matplotlib.figure` to be imported, patches it, and removes itself. The CLI (and so `vouch build` evaluating `vouch_values.py`) records no figures.
 
 ### 4.8 Run record format (`.vouch/runs/<id>.json`)
 
@@ -651,17 +657,25 @@ def _(v, sweep):                      # sweep: list[dict] (or a DataFrame with a
 def _(v):
     return [[m, v[f"cifar.{m}.acc"], v[f"imagenet.{m}.acc"]] for m in ("resnet", "vit", "convnext")]
 
+vouch.alias("resnet", "evaluate.cifar.resnet.lr_0_001")   # \vouch{resnet.acc} for a long tracked key
+
 vouch.expect("imagenet.convnext.acc", desc="ConvNeXt-T top-1 on ImageNet",
              producer="python experiments/train.py --dataset imagenet --model convnext")
 ```
 
+`vouch.claim` and `vouch.table` are the same functions experiments use to record claims and tables. Called with a value (`vouch.claim(key, holds)`), they record it in the active run. Called with only a key and options, they are decorators for `vouch_values.py`.
+
+The values modules are inert outside `vouch build`: importing one from a notebook or a test registers nothing and runs no definition. Inside a build they must not record: `vouch.record()` (or a `savefig`) there is an error, because a value computed from other values belongs in a `@vouch.derive`.
+
 ### 5.1 The accessor `v`
 
-- `v[key]` returns the raw value: `Stat` for a stat, `float` for a float, and so on. Subfield keys such as `.mean` work.
-- Every access is logged. The logged keys become the derivation's **dependencies**; they feed freshness (§8) and appear in tooltips, the CSV and failure messages.
-- Accessing a pending (expected) key raises `vouch.Pending`. The derivation becomes pending in turn, and so does everything citing it.
-- Accessing an unknown key raises `KeyError` with a did-you-mean suggestion.
-- Derivations may use other derived keys. Evaluation is lazy and memoized, with cycle detection (`derive-cycle` error).
+- `v[key]` returns the raw value: `Stat` for a stat, `float` for a float, `bool` for a claim, and a list of row dicts for a table. Subfield keys such as `.mean` and aliases (§5.7) work.
+- `v.keys("cifar.*.acc")` lists the recorded keys (from runs) matching a glob, for best-of and mean-over-datasets definitions. The list itself is a dependency: a new matching key makes the derivation out of date.
+- Every access is logged, with a content hash of the value read. The logged keys become the derivation's **dependencies**, and through them the runs it rests on. They feed freshness (§8) and appear in tooltips, the provenance appendix, the CSV, `vouch trace` ("from …", and "feeds …" on the keys read) and failure messages.
+- Accessing a pending (expected) key raises `vouch.Pending`. The derivation becomes pending in turn, and so does everything citing it. (Placeholders arrive with `expect`, §5.5.)
+- Accessing an unknown key fails the derivation with a did-you-mean suggestion: `derive-error: cifar.gap reads 'cifar.resnet.ac', which is not recorded by any run (did you mean cifar.resnet.acc?)`.
+- Derivations may use other derived keys. Evaluation is lazy and memoized, with cycle detection (`derive-cycle`, reported on every member of the cycle). A derivation that reads a failed one fails too, naming it.
+- A definition that raises is reported as `derive-error` with the exception and the file:line where it happened; the other definitions are still evaluated.
 
 ### 5.2 Artifact inputs
 
@@ -687,7 +701,11 @@ A claim function returns a `bool`, or a `Verdict` produced by these helpers:
 | `approx(x, y, rel=0.05)` | `|x − y| ≤ rel·|y|` |
 | `all_of(...)`, `any_of(...)` | combinations of the above |
 
-A `Verdict` carries `holds`, a human-readable `explanation` (`0.932 > 0.912`) and a relative **margin**. A claim that holds by less than `changes.claim_margin` is reported as `fragile` (§9.2). When a value changes, you are warned that a claim is close to flipping before it flips.
+A `Verdict` carries `holds`, a human-readable `explanation` (`0.932 > 0.912`) and a relative **margin**: how far the claim is from flipping, relative to the boundary it is measured against. `gt(a, b)` holds by `(a − b)/|b|`; `between` by the distance to the nearer bound; `approx` by the tolerance left; `all_of` is as fragile as its most fragile part. A failing verdict has a negative margin. A `Stat` is compared by its mean, and a `Verdict` is truthy, so `if vouch.gt(a, b):` works.
+
+A claim that holds by less than `changes.claim_margin` (default 1%) is reported as `fragile`: a warning naming the claim, its explanation and margin. When a value changes, you are warned that a claim is close to flipping before it flips.
+
+The helpers work in experiments too: `vouch.claim("cifar.resnet_beats_vit", vouch.gt(acc_r, acc_v), desc=…)` records the explanation and margin with the claim. Tooltips, the appendix and `vouch trace` show `0.932 > 0.912 (margin 2.2%)`.
 
 ### 5.4 Tables
 
@@ -699,6 +717,8 @@ Rendering produces only the **body rows** (`a & b & c \\`). You write the `tabul
 - `Stat` cells render `mean \pm std`.
 - `midrules=[2, 5]` inserts `\midrule` after the given body rows.
 - Each cell is citable as `\vouch{<table>.<row>.<col>}` and has a tooltip.
+- `[tables.<key>]` in `vouch.toml` overrides `fmt` (per column, merged), `highlight`, `second` and `midrules` for a recorded or derived table, so presentation changes need neither a re-run nor a code edit.
+- A derived table's cells carry the definition's provenance: the function, the keys it read and their runs.
 
 ### 5.5 Expected values (placeholders)
 
@@ -711,15 +731,46 @@ Rendering produces only the **body rows** (`a & b & c \\`). You write the `tabul
 
 ### 5.6 Evaluation and persistence
 
-`vouch build` imports each values module and evaluates every definition with code tracking on, one tracking scope per definition. It writes `.vouch/derived.json` (committed), and for each definition records:
+`vouch build` imports each values module and evaluates every definition. It writes `.vouch/derived.json` (committed, deterministic, one definition per line, sealed with a `record_hash` like a run record), which holds:
 
-- the value, and its dependencies (keys plus the `record_hash` of the run each came from)
-- its input artifact hashes
-- its code units
+- `code`: the semantic hash (§8.1) of each values module and of every first-party module it imported, such as a `helpers.py`
+- per definition: its kind, function and site; its results (values with their fmt, unit, desc and better; a claim's holds, explanation and margin; a table's rows); `deps`, every key it read with the content hash of the value read; `runs`, the runs those values came from; `inputs`, the files it read with their hashes
+- `problems`: the errors and warnings evaluation found (`derive-error`, `derive-cycle`, `untracked-input`, …), so every later build and check reports them until they are fixed
 
-Results are cached in `.vouch/cache/` by (code units, dependency hashes), so repeated builds are instant.
+```json
+"cifar.gap": {"kind": "value", "function": "vouch_values.py::gap", "site": "vouch_values.py:7",
+              "deps": {"cifar.resnet.acc.mean": "6e4001c6680470dc", "cifar.vit.acc.mean": "74c29573dc80a43d"},
+              "runs": ["cifar_resnet", "cifar_vit"],
+              "values": {"cifar.gap": {"type": "float", "value": 2.02, "fmt": ".1f", "unit": "points", …}}}
+```
 
-`vouch check` does **not** re-evaluate definitions. It verifies that `derived.json` is consistent with the current code and dependencies by comparing hashes, and reports `out-of-sync` (fix: `vouch build`) if not. Checking therefore never imports pandas or runs user code.
+**Code is hashed per module, not per definition.** Derivations are cheap, and a module-level change (a constant, a helper) can affect any of them, so the whole set is re-evaluated when any of its code changes semantically. Comments, docstrings and formatting don't count (§8.1).
+
+**When anything moved, rebuild; otherwise don't even import.** A build first compares `derived.json` with the present: the code hashes, every dependency's current value hash, every input's file hash, and the list of values modules. If nothing moved, it uses the stored results without importing anything, so repeated builds are instant. If something moved, it re-evaluates everything and rewrites the file (only if its content changed).
+
+`vouch check` does **not** evaluate definitions: checking never imports pandas or runs user code. It loads `derived.json`, makes the same comparison, and reports one `out-of-sync` error listing what moved (`vouch_values.py changed`, `cifar.vit.acc.mean changed (read by cifar.gap)`, `input data/x.csv changed (read by …)`), with the fix `vouch build`. A key cited in the paper and defined in a values module that hasn't been built yet is covered by that error, not reported as `unknown-key`: check finds such keys by reading the literal first arguments of `derive`/`claim`/`table`/`alias` calls in the source. A hand edit of `derived.json` is `store-edited`.
+
+**Freshness.** A derived value rests on the runs it read. If one of them is stale, the check reports that run as stale and names the derived key among the citations, exactly as for a directly recorded value. Tooltips and the appendix show each run's state.
+
+**Imports.** Each build imports the values modules afresh (and their first-party helpers), with the module's directory and the project root on `sys.path`, and removes them from `sys.modules` afterwards.
+
+### 5.7 Aliases
+
+`vouch.alias(short, full)` in a values module lets the paper cite `full`, and every key under it, by a shorter name:
+
+```python
+vouch.alias("resnet", "evaluate.cifar.resnet.lr_0_001")     # a long @vouch.track key
+```
+
+```latex
+ResNet reaches \vouch{resnet.acc} (\vouch[.3f]{resnet.acc.mean}).
+```
+
+- An alias covers the key itself and every key under it: subfields (`.mean`), dict fields, table cells, and a whole table (`\vouchtable{short}`).
+- An aliased key has the provenance of the original, plus "alias of `evaluate.cifar.resnet.lr_0_001.acc`" in its tooltip, appendix entry and `vouch trace`.
+- Aliases can be read in definitions (`v["resnet.acc.mean"]`) and may name other aliases.
+- An alias whose target matches nothing is an `alias-target` warning. An alias that collides with a recorded key is a `key-conflict`.
+- Aliases are stored in `derived.json` like definitions, so check resolves them without running anything.
 
 ---
 
@@ -1136,18 +1187,20 @@ There is exactly one CSV per paper, covering every cited key. This was decided i
 | Check | Default | Trigger | Fix |
 |---|---|---|---|
 | `config` | error | invalid `vouch.toml` or tex graph | message names the file and line |
-| `store-edited` | error | a run record's `record_hash` doesn't match its content | re-run the experiment; never hand-edit `.vouch/` |
+| `store-edited` | error | a run record's or `derived.json`'s `record_hash` doesn't match its content | re-run the experiment (or `vouch build`); never hand-edit `.vouch/` |
+| `derive-error` | error | a values module failed to import, or a definition raised, read an unknown key, read a failed definition, returned the wrong type, or was defined twice; the message names the file:line | fix the definition, then `vouch build` |
 | `unknown-key` | error | a cited key exists nowhere (did-you-mean suggestions included) | fix the key, or `record`/`derive`/`expect` it |
 | `key-conflict` | error | two sources produce one key | rename one |
 | `out-of-sync` | error | generated files or `derived.json` differ from what `build` would write. Run freshness is excluded from the comparison: it depends on the working tree, not on what was recorded, so it lives on separate `\vouch@state` lines (read by tooltips) and in the CSV's freshness column. A code edit is reported once, as `stale`, never also as `out-of-sync`. | `vouch build` |
 | `stale` / `upstream-stale` | error (info when the paper cites nothing from the run) | §8.4 | re-run (exact command shown) or `vouch accept` |
 | `tampered` / `incomplete` | error | §8.4 | re-run |
 | `untracked-input` | error | a derivation reads a file no run produced and not listed as `external` | produce it in a run, or declare it `external` |
+| `alias-target` | warning | an alias names a key under which nothing is recorded | fix the alias |
 | `derive-cycle` | error | derived values depend on each other | break the cycle |
 | `false-claim` | error | a claim no longer holds; the message shows the values it read | re-examine the result and the prose |
 | `figure-stale` | error | a cited figure's producing run is stale | re-run |
 | `changed` / `suspicious` / `figure-changed` | warning | §9.2 | re-read the cited sentences, then `vouch ack` |
-| `fragile` | warning | a claim holds by a thin margin | reconsider the claim wording |
+| `fragile` | warning | a claim holds by less than `changes.claim_margin` (§5.3) | soften the claim, or check it is not noise |
 | `pending` | warning | a cited `expect()` key has no producing run | run the `producer` command |
 | `no-source` | warning | a bare number in prose that matches **no** recorded value: the signature of an invented number | find the real value (`vouch search`) or remove the number |
 | `bare-number` | warning | a bare number that **does** match a recorded value | `vouch suggest --apply` |

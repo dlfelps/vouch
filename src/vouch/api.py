@@ -15,6 +15,7 @@ import csv
 import datetime as _dt
 import fnmatch
 import json
+import math
 import os
 import platform
 import subprocess
@@ -435,16 +436,24 @@ class Run:
 
     def claim(self, key: str, holds: Any, *, desc: str | None = None,
               values: Mapping[str, Any] | None = None) -> bool:
-        """Record a boolean claim; returns it so it can be used inline."""
+        """Record a claim: a bool, or a Verdict from ``vouch.gt``/``between``/... (which
+        also records why it holds and by what margin). Returns whether it holds."""
+        from .verdict import Verdict
         self._check_open()
         site = _site()
         full = self._key(key)
-        verdict = bool(coerce_scalar(holds))
+        ver = holds if isinstance(holds, Verdict) else None
+        verdict = ver.holds if ver is not None else bool(coerce_scalar(holds))
         entry: dict[str, Any] = {"holds": verdict, "site": site}
         if desc:
             entry["desc"] = str(desc)
         else:
             _warn(f'claim {full} has no desc; add desc="..." stating what it asserts')
+        if ver is not None:
+            if ver.explanation not in ("true", "false"):
+                entry["explanation"] = ver.explanation
+            if ver.margin is not None and math.isfinite(ver.margin):
+                entry["margin"] = round(ver.margin, 6)
         if values:
             enc = {}
             for k, v in dict(values).items():
@@ -478,13 +487,16 @@ class Run:
     def artifact(self, path: str | os.PathLike, *, kind: str | None = None) -> None:
         """Declare an output file; hashed when the run ends, after it is written."""
         self._check_open()
+        self._add_artifact(path, kind, _site())
+
+    def _add_artifact(self, path: str | os.PathLike, kind: str | None, site: str) -> None:
         p = Path(path)
         if kind is None:
             ext = p.suffix.lower()
             kind = ("figure" if ext in FIGURE_EXT else "data" if ext in DATA_EXT
                     else "model" if ext in MODEL_EXT else "file")
         with self._lock:
-            self._artifacts[str(p.resolve())] = {"kind": kind, "site": _site()}
+            self._artifacts[str(p.resolve())] = {"kind": kind, "site": site}
 
     def table(self, key: str, data: Any, *, columns: list[str] | None = None,
               row_key: str | None = None, fmt: Mapping[str, str] | None = None,
@@ -495,57 +507,12 @@ class Run:
         self._check_open()
         site = _site_override or _site()
         full = self._key(key)
-        rows = _as_rows(data, columns=columns, row_key=row_key)
-        if rows is None:
-            _warn(f"table {full}: expected rows, a DataFrame or {{row: {{col: value}}}}, "
-                  f"not {type(data).__name__}")
+        entry = table_record(full, data, columns=columns, row_key=row_key, fmt=fmt,
+                             highlight=highlight, second=second, midrules=midrules, desc=desc,
+                             named_formats=self._config.named_formats, warn=_warn)
+        if entry is None:
             return
-        cols: list[str] = list(columns) if columns else []
-        if not cols:
-            for r in rows:
-                for c in r:
-                    if c not in cols:
-                        cols.append(c)
-        if row_key is not None and row_key not in cols:
-            _warn(f"table {full}: row_key {row_key!r} is not a column")
-            row_key = None
-        body = []
-        for r in rows:
-            cells = []
-            for c in cols:
-                try:
-                    cells.append(encode_cell(r.get(c)))
-                except TypeError:
-                    cells.append(str(r.get(c)))
-            body.append(cells)
-        entry: dict[str, Any] = {"columns": [str(c) for c in cols], "rows": body, "site": site}
-        if row_key is not None:
-            entry["row_key"] = row_key
-        if fmt:
-            norm = {}
-            for c, f in fmt.items():
-                try:
-                    n = _fmt.normalize(f, self._config.named_formats)
-                except ValueError as exc:
-                    _warn(f"table {full}, column {c}: {exc}; format ignored")
-                    continue
-                if n:
-                    norm[str(c)] = n
-            if norm:
-                entry["fmt"] = norm
-        if highlight:
-            bad = {c: h for c, h in highlight.items() if h not in ("max", "min", "best")}
-            if bad:
-                _warn(f"table {full}: highlight must be 'max', 'min' or 'best': {bad}")
-            hl = {str(c): h for c, h in highlight.items() if c not in bad}
-            if hl:
-                entry["highlight"] = hl
-        if second:
-            entry["second"] = str(second)
-        if midrules:
-            entry["midrules"] = [int(i) for i in midrules]
-        if desc:
-            entry["desc"] = str(desc)
+        entry["site"] = site
         with self._lock:
             if full in self._tables:
                 _warn(f"table {full} recorded twice in run {self.id}; the last one wins")
@@ -662,6 +629,69 @@ class Run:
 # ---------------------------------------------------------------------------
 # tabular data and results files
 # ---------------------------------------------------------------------------
+
+def table_record(full: str, data: Any, *, columns: list[str] | None = None,
+                 row_key: str | None = None, fmt: Mapping[str, str] | None = None,
+                 highlight: Mapping[str, str] | None = None, second: str | None = None,
+                 midrules: list[int] | None = None, desc: str | None = None,
+                 named_formats: Mapping[str, str] | None = None, warn=None) -> dict | None:
+    """A table as stored: columns, encoded rows and presentation. None if ``data`` isn't
+    tabular. Shared by ``run.table`` and ``@vouch.table``."""
+    warn = warn or _warn
+    rows = _as_rows(data, columns=columns, row_key=row_key)
+    if rows is None:
+        warn(f"table {full}: expected rows, a DataFrame or {{row: {{col: value}}}}, "
+             f"not {type(data).__name__}")
+        return None
+    cols: list[str] = list(columns) if columns else []
+    if not cols:
+        for r in rows:
+            for c in r:
+                if c not in cols:
+                    cols.append(c)
+    if row_key is not None and row_key not in cols:
+        warn(f"table {full}: row_key {row_key!r} is not a column")
+        row_key = None
+    body = []
+    for r in rows:
+        cells = []
+        for c in cols:
+            v = coerce_scalar(r.get(c))
+            try:
+                cells.append(encode_cell(v))
+            except TypeError:
+                cells.append(str(v))
+        body.append(cells)
+    entry: dict[str, Any] = {"columns": [str(c) for c in cols], "rows": body}
+    if row_key is not None:
+        entry["row_key"] = row_key
+    if fmt:
+        norm = {}
+        for c, f in fmt.items():
+            try:
+                n = _fmt.normalize(f, dict(named_formats or {}))
+            except ValueError as exc:
+                warn(f"table {full}, column {c}: {exc}; format ignored")
+                continue
+            if n:
+                norm[str(c)] = n
+        if norm:
+            entry["fmt"] = norm
+    if highlight:
+        bad = {c: h for c, h in highlight.items() if h not in ("max", "min", "best")}
+        if bad:
+            warn(f"table {full}: highlight must be 'max', 'min' or 'best': {bad}")
+        hl = {str(c): h for c, h in highlight.items() if c not in bad}
+        if hl:
+            entry["highlight"] = hl
+    if second:
+        entry["second"] = str(second)
+    if midrules:
+        entry["midrules"] = [int(i) for i in midrules]
+    if desc:
+        entry["desc"] = str(desc)
+    return entry
+
 
 def _is_dataframe(obj: Any) -> bool:
     return all(hasattr(obj, a) for a in ("columns", "iloc", "to_dict", "index"))
@@ -928,6 +958,10 @@ def _implicit_run() -> Run:
 
 def active_run() -> Run:
     """The run module-level calls act on: the explicit one if inside ``with``, else implicit."""
+    from .derive import evaluating
+    if evaluating():
+        raise RuntimeError("vouch_values.py is evaluated by `vouch build` and must not record "
+                           "values; define them with @vouch.derive, @vouch.claim or @vouch.table")
     with _state_lock:
         if _explicit is not None:
             return _explicit
@@ -948,8 +982,19 @@ def record_all(values: Any, **kwargs: Any) -> Any:
     return active_run().record_all(values, **kwargs)
 
 
-def claim(key: str, holds: Any, *, desc: str | None = None,
-          values: Mapping[str, Any] | None = None) -> bool:
+_MISSING = object()
+
+
+def claim(key: str, holds: Any = _MISSING, *, desc: str | None = None,
+          values: Mapping[str, Any] | None = None, inputs: Any = ()) -> Any:
+    """``vouch.claim(key, holds, desc=...)`` records a claim in the active run.
+
+    Without ``holds`` it is a decorator for ``vouch_values.py``: the function computes
+    the claim from recorded values and returns a bool or a Verdict (``vouch.gt``, ...).
+    """
+    if holds is _MISSING:
+        from .derive import claim_definition
+        return claim_definition(key, desc=desc, inputs=inputs)
     return active_run().claim(key, holds, desc=desc, values=values)
 
 
@@ -961,9 +1006,25 @@ def artifact(path: str | os.PathLike, *, kind: str | None = None) -> None:
     active_run().artifact(path, kind=kind)
 
 
-def table(key: str, data: Any, **kwargs: Any) -> None:
+def table(key: str, data: Any = _MISSING, **kwargs: Any) -> Any:
+    """``vouch.table(key, rows, ...)`` records a table in the active run.
+
+    Without ``rows`` it is a decorator for ``vouch_values.py``: the function assembles
+    the table from recorded values (``v[key]``) and returns its rows.
+    """
+    if data is _MISSING:
+        from .derive import table_definition
+        return table_definition(key, **kwargs)
     active_run().table(key, data, **kwargs)
 
 
 def params(obj: Any) -> None:
     active_run().params(obj)
+
+
+def _figure_saved(path: str, site: str) -> None:
+    """A figure written by matplotlib's ``savefig``: an artifact of the active run."""
+    from .derive import evaluating
+    if evaluating():
+        return
+    active_run()._add_artifact(path, "figure", site)

@@ -299,8 +299,8 @@
     \section*{\vouchprovenancename}%
     {\small\noindent Every number in this draft links here. Each entry names the run that
      recorded it, where, and how; \texttt{vouch check} verifies them against the code.
-     Compile with \texttt{\string\usepackage[final]\{vouch\}} to drop this appendix.\par
-     \begingroup\vouch@nolinktrue
+     Compile with \texttt{\string\usepackage[final]\char`\{vouch\char`\}} to drop this appendix.\par
+     \begingroup\vouch@nolinktrue\raggedright   % keys and paths don't hyphenate
      \begin{list}{}{\setlength\leftmargin{0pt}\setlength\itemsep{1.2ex}%
                     \setlength\parsep{0pt}\setlength\itemindent{0pt}}%
        \vouch@citedlist

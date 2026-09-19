@@ -9,7 +9,7 @@ import shlex
 from typing import Any
 
 from .hashing import short
-from .index import Entry, Index
+from .index import Entry, Index, source_runs
 from .render import Rendered
 from .tex.scan import Document
 from .values import Stat
@@ -21,6 +21,8 @@ COLUMNS = ("key", "kind", "rendered", "raw_value", "fmt", "unit", "description",
 
 KIND = {"value": "value", "stat-field": "value", "element": "value", "param": "param", "claim": "claim",
         "table": "table", "table-cell": "table-cell"}
+
+_ORDER = ("tampered", "incomplete", "stale", "upstream-stale", "accepted", "cosmetic", "fresh")
 
 
 def _raw_json(x: Any) -> str:
@@ -53,12 +55,28 @@ def _run_columns(idx: Index, run: str | None) -> dict[str, str]:
     }
 
 
-def _status_columns(ctx, key: str, run: str | None) -> dict[str, str]:
+def _derived_columns(e: Entry) -> dict[str, str]:
+    d = e.extra.get("derived") or {}
+    deps = [k for k in d.get("deps") or [] if not k.startswith("keys:")]
+    ins = [f"{p}@{short(h)}" for p, h in sorted((d.get("inputs") or {}).items())]
+    return {"experiment": f"derive:{d.get('function', '')}",
+            "script": str(d.get("function", "")).split("::")[0],
+            "inputs": "; ".join(deps + ins)}
+
+
+def _freshness(ctx, runs: list[str]) -> str:
+    """The worst state among the runs a value rests on."""
+    states = [ctx.states[r].state for r in runs if r in ctx.states]
+    if not states:
+        return ""
+    return min(states, key=lambda s: _ORDER.index(s) if s in _ORDER else len(_ORDER))
+
+
+def _status_columns(ctx, key: str, runs: list[str]) -> dict[str, str]:
     """freshness, change_status, previous_value, acked_at -- when a build context is given."""
     if ctx is None:
         return {}
-    st = ctx.states.get(run or "")
-    out = {"freshness": st.state if st else ""}
+    out = {"freshness": _freshness(ctx, runs)}
     change = ctx.pending.get(key)
     base = ctx.baseline.get(key)
     if change is not None:
@@ -110,12 +128,17 @@ def rows(doc: Document, idx: Index, rendered: dict[tuple[str, str], Rendered],
             fl = fmt_list or [""]
             row["rendered"] = " | ".join(rendered[(key, f)].latex for f in fl if (key, f) in rendered)
             row["fmt"] = " | ".join(f or (e.fmt or "") for f in fl)
-        row.update(_run_columns(idx, e.run))
+        runs = source_runs(e)
+        if e.extra.get("derived"):
+            row.update(_derived_columns(e))
+            if e.kind == "value":
+                row["kind"] = "derived"
+        else:
+            row.update(_run_columns(idx, e.run))
         if where:
-            row.update(_status_columns(ctx, key, e.run))
+            row.update(_status_columns(ctx, key, runs))
         elif ctx is not None:
-            st = ctx.states.get(e.run or "")
-            row["freshness"] = st.state if st else ""
+            row["freshness"] = _freshness(ctx, runs)
         return row
 
     for key in order:
@@ -127,7 +150,7 @@ def rows(doc: Document, idx: Index, rendered: dict[tuple[str, str], Rendered],
             if fig:
                 row["call_site"] = fig.site or ""
                 row.update(_run_columns(idx, fig.run))
-                row.update(_status_columns(ctx, key, fig.run))
+                row.update(_status_columns(ctx, key, [fig.run]))
             else:
                 row["freshness"] = "untracked"
             out.append(row)

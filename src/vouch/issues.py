@@ -8,10 +8,11 @@ from typing import Any, Mapping
 SEVERITIES = ("error", "warning", "info")
 
 # the order to fix things in: each group tends to unlock the ones after it
-PRIORITY = ("config", "store-edited", "bad-record", "unknown-key", "key-conflict",
-            "out-of-sync", "format", "incomplete", "tampered", "stale", "upstream-stale",
-            "false-claim", "figure-stale", "figure-tampered", "suspicious", "changed",
-            "figure-changed", "pending", "non-finite", "figure-missing", "figure-untracked",
+PRIORITY = ("config", "store-edited", "bad-record", "derive-error", "derive-cycle",
+            "unknown-key", "key-conflict", "alias-target", "untracked-input", "out-of-sync",
+            "format", "incomplete", "tampered", "stale", "upstream-stale", "false-claim",
+            "figure-stale", "figure-tampered", "suspicious", "changed", "figure-changed",
+            "fragile", "pending", "non-finite", "figure-missing", "figure-untracked",
             "no-description", "env-drift", "absent", "table")
 
 

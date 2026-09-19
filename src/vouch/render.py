@@ -27,6 +27,7 @@ _ROUNDING = {"half_up": decimal.ROUND_HALF_UP, "half_even": decimal.ROUND_HALF_E
 _TEX_ESCAPES = {
     "\\": r"\textbackslash{}", "&": r"\&", "%": r"\%", "$": r"\$", "#": r"\#",
     "_": r"\_", "{": r"\{", "}": r"\}", "~": r"\textasciitilde{}", "^": r"\textasciicircum{}",
+    "<": r"\ensuremath{<}", ">": r"\ensuremath{>}",       # OT1 text fonts have no < or >
 }
 
 

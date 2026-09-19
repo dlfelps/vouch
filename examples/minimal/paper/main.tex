@@ -34,4 +34,23 @@ there for computation too: \vouchraw{train.param.seeds} seeds.
   \end{tabular}
 \end{table}
 
+\section{Computed from the results}
+
+Numbers derived from others are computed in \texttt{vouch\_values.py}, never by
+hand: the centroid classifier gains \vouch{toy.gain} over the baseline
+(\vouch{centroid.acc} against \vouch{toy.majority.acc}).
+\vouchclaim{toy.gain_over_10}{That is more than ten points}.
+
+\begin{table}[h]
+  \centering
+  \caption{Accuracy and gain over the majority baseline, in points.}
+  \begin{tabular}{lrr}
+    \toprule
+    Model & Accuracy & Gain \\
+    \midrule
+    \vouchtable{summary}
+    \bottomrule
+  \end{tabular}
+\end{table}
+
 \end{document}

@@ -22,6 +22,7 @@ from pathlib import Path
 from . import changes as ch
 from .build import BuildError, Context, comparable, plan
 from .config import Config
+from .index import source_runs
 from .issues import Issue, apply_severity, ordered
 from .values import is_finite_value
 
@@ -52,11 +53,14 @@ def _cited(ctx: Context) -> dict[str, list[tuple[str, str, int]]]:
         for c in pl.doc.citations:
             if c.kind == "figure":
                 fig = ctx.idx.figures.get(c.key)
-                run = fig.run if fig else None
+                runs = [fig.run] if fig else []
             else:
                 e = ctx.idx.get(c.key)
-                run = e.run if e else None
-            if run:
+                runs = source_runs(e) if e else []          # a derived value rests on its runs
+                if e is not None and e.kind == "table" and c.key in ctx.idx.tables:
+                    t = ctx.idx.tables[c.key]
+                    runs = list(t.derived.get("runs") or []) if t.derived else runs
+            for run in runs:
                 out.setdefault(run, []).append((c.key, c.file, c.line))
     return out
 
@@ -138,18 +142,32 @@ def collect(ctx: Context) -> list[Issue]:
 
     # claims, figures, values
     seen_keys: set[str] = set()
+    margin_min = float(cfg.get("changes", "claim_margin", 0.01) or 0.0)
     for pl in ctx.plans:
         for c in pl.doc.citations:
             if c.kind == "claim":
                 e = idx.get(c.key)
-                if e is not None and e.kind == "claim" and not e.raw:
-                    vals = e.extra.get("values") or {}
+                if e is None or e.kind != "claim":
+                    continue
+                vals = e.extra.get("values") or {}
+                expl = e.extra.get("explanation")
+                about = expl or ", ".join(f"{k}={v}" for k, v in vals.items())
+                if not e.raw:
                     issues.append(Issue("false-claim", "error",
                                         f"claim {c.key} no longer holds ({e.desc or 'no description'})"
-                                        + (": " + ", ".join(f"{k}={v}" for k, v in vals.items())
-                                           if vals else ""),
+                                        + (f": {about}" if about else ""),
                                         c.file, c.line, subject=c.key, fix_kind="human",
                                         fix="re-examine the result and rewrite the claim"))
+                    continue
+                margin = e.extra.get("margin")
+                if isinstance(margin, (int, float)) and margin < margin_min and c.key not in seen_keys:
+                    seen_keys.add(c.key)
+                    issues.append(Issue("fragile", "warning",
+                                        f"claim {c.key} holds by only {margin:.2%} ({about}); a "
+                                        f"small change would flip it", c.file, c.line, subject=c.key,
+                                        fix_kind="human",
+                                        fix="soften the claim, or check it is not noise "
+                                            "(more seeds, a significance test)"))
             elif c.kind == "figure" and c.resolved:
                 fig = idx.figures.get(c.key)
                 if fig is None:
@@ -198,10 +216,13 @@ def collect(ctx: Context) -> list[Issue]:
                                 f"{change.key}: {change.cls} (acknowledged at the next build)",
                                 subject=change.key))
 
-    # uncited values, as one line
+    # uncited values, as one line (a value a derivation reads is used)
     cited_keys = {c.key for pl in ctx.plans for c in pl.doc.citations}
+    read = {k for e in idx.entries.values() for k in (e.extra.get("derived") or {}).get("deps", [])}
+    read |= {k.rsplit(".", 1)[0] for k in read}
     uncited = [k for k, e in idx.entries.items()
-               if e.kind == "value" and k not in cited_keys]
+               if e.kind == "value" and k not in cited_keys and k not in read
+               and "alias_of" not in e.extra]
     if uncited:
         issues.append(Issue("unused-value", "info", f"{len(uncited)} recorded value(s) are not "
                             f"cited: " + ", ".join(sorted(uncited)[:5])

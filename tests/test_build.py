@@ -31,7 +31,8 @@ def test_build_writes_values_and_tables(example):
     res = build(Config.load(example))
     written = {p.relative_to(example).as_posix() for p in res.written}
     # the provenance CSV is on demand (vouch export) unless [[paper]] asks for it
-    assert written == {"paper/vouch-values.tex", "paper/vouch-tables/main.tex"}
+    assert written == {".vouch/derived.json", "paper/vouch-values.tex",
+                       "paper/vouch-tables/main.tex", "paper/vouch-tables/summary.tex"}
     v = values(example)
     # default rendering from [metrics] (.1pct), Stat as mean \pm std
     assert r"\vouch@set{toy.centroid.acc}{}{\ensuremath{80.2 \pm 3.5}\%}" in v
@@ -93,8 +94,14 @@ def test_provenance_csv_rows_in_reading_order(example, capsys):
     claim = next(r for r in rows if r["kind"] == "claim")
     assert claim["rendered"] == "HOLDS" and claim["raw_value"].startswith("true ")
     cells = [r["key"] for r in rows if r["kind"] == "table-cell"]
-    assert cells == ["main.centroid.model", "main.centroid.acc", "main.majority.model",
-                     "main.majority.acc"]
+    assert cells[:4] == ["main.centroid.model", "main.centroid.acc", "main.majority.model",
+                         "main.majority.acc"]
+    derived = next(r for r in rows if r["key"] == "toy.gain")
+    assert derived["kind"] == "derived" and derived["experiment"] == "derive:vouch_values.py::gain"
+    assert derived["inputs"] == "centroid.acc.mean; toy.majority.acc.mean"
+    assert derived["freshness"] == "fresh" and derived["call_site"] == "vouch_values.py:13"
+    alias = next(r for r in rows if r["key"] == "centroid.acc")
+    assert alias["experiment"] == "train" and alias["kind"] == "value"
 
 
 def test_unknown_keys_and_bad_formats_are_reported(example):
@@ -130,7 +137,8 @@ def test_store_edits_are_reported(example):
 def test_cli_build_json(example, capsys):
     assert cli.main(["build", "--root", str(example), "--json"]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["schema"] == "vouch/1" and out["papers"][0]["counts"]["claims"] == 1
+    assert out["schema"] == "vouch/1" and out["papers"][0]["counts"]["claims"] == 2
+    assert ".vouch/derived.json" in out["written"]
 
 
 def test_cli_export_all_to_stdout(example, capsys):

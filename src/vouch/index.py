@@ -8,6 +8,8 @@ A run record stores what was recorded; the index is what the paper can cite:
     claims           cifar.resnet_beats_vit
     tables + cells   main, main.resnet.acc
     figures          by artifact path
+    derived          values, claims and tables from vouch_values.py (derived.json)
+    aliases          a short name for a key and everything under it
 
 Metadata from ``[metrics]`` in vouch.toml is applied here, at read time, so editing
 a pattern re-describes every matching key without re-running anything.
@@ -44,7 +46,7 @@ class Entry:
 @dataclasses.dataclass
 class Table:
     key: str
-    run: str
+    run: str | None
     site: str | None
     columns: list[str]
     rows: list[list[Any]]      # decoded cells
@@ -54,6 +56,14 @@ class Table:
     second: str | None = None
     midrules: list[int] = dataclasses.field(default_factory=list)
     desc: str | None = None
+    derived: dict | None = None          # a @vouch.table: function, deps, runs
+    alias_of: str | None = None
+
+    @property
+    def origin(self) -> str:
+        if self.derived:
+            return str(self.derived.get("function", "vouch_values.py"))
+        return f"run {self.run}"
 
     def row_id(self, i: int) -> str:
         if self.row_key is not None and self.row_key in self.columns:
@@ -74,7 +84,7 @@ class Figure:
 
 @dataclasses.dataclass
 class Problem:
-    check: str                 # store-edited | key-conflict | bad-record
+    check: str                 # store-edited | key-conflict | bad-record | alias-target
     subject: str
     message: str
 
@@ -88,6 +98,8 @@ class Index:
         self.figures: dict[str, Figure] = {}
         self.problems: list[Problem] = []
         self._sources: dict[str, list[str]] = {}
+        self.derived_doc: dict | None = None     # derived.json, once loaded or evaluated
+        self.unevaluated: set[str] = set()       # keys vouch_values.py defines, not yet built
 
     # -- loading ----------------------------------------------------------------
 
@@ -103,12 +115,24 @@ class Index:
                     f"Re-run the experiment; never edit .vouch/ directly."))
             idx.runs[run] = rec
             idx._add_run(run, rec)
-        for key, sources in idx._sources.items():
-            if len(sources) > 1:
-                idx.problems.append(Problem(
-                    "key-conflict", key, f"{key} is produced by {len(sources)} sources: "
-                    + ", ".join(sources) + "; rename one"))
         return idx
+
+    def clone(self) -> "Index":
+        """A copy that can take more entries without touching this one."""
+        other = Index(self.cfg)
+        other.runs = dict(self.runs)
+        other.entries = dict(self.entries)
+        other.tables = dict(self.tables)
+        other.figures = dict(self.figures)
+        other.problems = list(self.problems)
+        other._sources = {k: list(v) for k, v in self._sources.items()}
+        return other
+
+    def conflicts(self) -> list[Problem]:
+        """Keys produced by more than one run, definition or alias."""
+        return [Problem("key-conflict", key, f"{key} is produced by {len(sources)} sources: "
+                        + ", ".join(sources) + "; rename one")
+                for key, sources in sorted(self._sources.items()) if len(sources) > 1]
 
     def _add(self, entry: Entry, source: str) -> None:
         self._sources.setdefault(entry.key, []).append(source)
@@ -151,31 +175,114 @@ class Index:
 
         for key, c in (rec.get("claims") or {}).items():
             self._add(Entry(key, "claim", bool(c.get("holds")), run=run, site=c.get("site"),
-                            desc=c.get("desc"), extra={"values": c.get("values") or {}}), src)
+                            desc=c.get("desc"), extra=_claim_extra(c)), src)
 
         for key, t in (rec.get("tables") or {}).items():
-            table = Table(key=key, run=run, site=t.get("site"), columns=list(t.get("columns") or []),
-                          rows=[[decode_cell(c) for c in row] for row in t.get("rows") or []],
-                          row_key=t.get("row_key"), fmt=dict(t.get("fmt") or {}),
-                          highlight=dict(t.get("highlight") or {}), second=t.get("second"),
-                          midrules=list(t.get("midrules") or []), desc=t.get("desc"))
-            self.tables[key] = table
-            self._add(Entry(key, "table", None, run=run, site=table.site, desc=table.desc), src)
-            for i, row in enumerate(table.rows):
-                for col, cell in zip(table.columns, row):
-                    ck = table.cell_key(i, col)
-                    stored = {"fmt": table.fmt.get(col)} if table.fmt.get(col) else {}
-                    meta = self._meta(ck, stored)
-                    if not meta["desc"]:
-                        meta["desc"] = f"{col} of {table.row_id(i)} in table {key}"
-                    self._add(Entry(ck, "table-cell", cell, run=run, site=table.site,
-                                    parent=key, extra={"row": i, "col": col}, **meta), src)
+            self._add_table(key, t, run, t.get("site"), src)
 
         for path, a in (rec.get("artifacts") or {}).items():
             if a.get("kind") == "figure":
                 self.figures[path] = Figure(path, run, a.get("hash"), a.get("site"))
 
-    def _add_stat_fields(self, key: str, s: Stat, run: str, site: str | None, meta: dict,
+    def _add_table(self, key: str, t: dict, run: str | None, site: str | None, src: str,
+                   derived: dict | None = None) -> None:
+        over = (self.cfg.data.get("tables") or {}).get(key) or {}    # [tables.<key>] in vouch.toml
+        fmt = {**dict(t.get("fmt") or {}), **dict(over.get("fmt") or {})}
+        table = Table(key=key, run=run, site=site, columns=list(t.get("columns") or []),
+                      rows=[[decode_cell(c) for c in row] for row in t.get("rows") or []],
+                      row_key=t.get("row_key"), fmt=fmt,
+                      highlight=dict(over.get("highlight", t.get("highlight")) or {}),
+                      second=over.get("second", t.get("second")),
+                      midrules=list(over.get("midrules", t.get("midrules")) or []),
+                      desc=t.get("desc"), derived=derived)
+        extra = {"derived": derived} if derived else {}
+        self.tables[key] = table
+        self._add(Entry(key, "table", None, run=run, site=table.site, desc=table.desc,
+                        extra=dict(extra)), src)
+        for i, row in enumerate(table.rows):
+            for col, cell in zip(table.columns, row):
+                ck = table.cell_key(i, col)
+                stored = {"fmt": table.fmt.get(col)} if table.fmt.get(col) else {}
+                meta = self._meta(ck, stored)
+                if not meta["desc"]:
+                    meta["desc"] = f"{col} of {table.row_id(i)} in table {key}"
+                self._add(Entry(ck, "table-cell", cell, run=run, site=table.site,
+                                parent=key, extra={"row": i, "col": col, **extra}, **meta), src)
+
+    # -- derived values (vouch_values.py, through derived.json) --------------------
+
+    def add_derived(self, doc: dict) -> None:
+        self.derived_doc = doc
+        defs = doc.get("definitions") or {}
+        for key in sorted(defs):
+            if defs[key].get("kind") != "alias":
+                self.add_definition(key, defs[key])
+        self.add_aliases([(key, defs[key].get("target", ""), defs[key].get("site"))
+                          for key in sorted(defs) if defs[key].get("kind") == "alias"])
+
+    def add_aliases(self, aliases: list[tuple[str, str, str | None]]) -> None:
+        """Add aliases, each after any alias its target goes through."""
+        def through(target: str, short: str) -> bool:
+            return target == short or target.startswith(short + ".")
+        todo = list(aliases)
+        while todo:
+            ready = [a for a in todo if not any(through(a[1], b[0]) for b in todo if b is not a)]
+            for a in ready or todo[:1]:          # a cycle: add one anyway and report it
+                self.add_alias(*a)
+                todo.remove(a)
+
+    def add_definition(self, key: str, d: dict) -> None:
+        info = {"function": d.get("function"), "site": d.get("site"),
+                "deps": sorted(d.get("deps") or {}), "runs": list(d.get("runs") or []),
+                "inputs": dict(d.get("inputs") or {})}
+        src = f"derive {d.get('function')}"
+        site = d.get("site")
+        kind = d.get("kind")
+        if kind == "value":
+            for k, v in sorted((d.get("values") or {}).items()):
+                try:
+                    raw = decode(v["type"], v["value"])
+                except (KeyError, ValueError, TypeError):
+                    self.problems.append(Problem("bad-record", k, f"derived.json: cannot read {k}"))
+                    continue
+                meta = self._meta(k, v)
+                extra = {"derived": info}
+                self._add(Entry(k, "value", raw, run=None, site=site, extra=extra, **meta), src)
+                if isinstance(raw, Stat):
+                    self._add_stat_fields(k, raw, None, site, meta, src, extra)
+                elif isinstance(raw, tuple) and len(raw) <= MAX_ELEMENTS:
+                    self._add_elements(k, raw, None, site, meta, src, extra, taken=d["values"])
+        elif kind == "claim":
+            c = d.get("claim") or {}
+            self._add(Entry(key, "claim", bool(c.get("holds")), run=None, site=site,
+                            desc=c.get("desc"), extra={**_claim_extra(c), "derived": info}), src)
+        elif kind == "table":
+            self._add_table(key, d.get("table") or {}, None, site, src, derived=info)
+
+    def add_alias(self, short: str, full: str, site: str | None = None) -> None:
+        """``short`` (and ``short.x`` for every ``full.x``) cites what ``full`` cites."""
+        def moved(k: str | None) -> str | None:
+            if k is not None and (k == full or k.startswith(full + ".")):
+                return short + k[len(full):]
+            return k
+        found = False
+        for k in sorted(self.entries):
+            if k == full or k.startswith(full + "."):
+                e = self.entries[k]
+                found = True
+                self._add(dataclasses.replace(e, key=moved(k), parent=moved(e.parent),
+                                              extra={**e.extra, "alias_of": k}),
+                          f"alias {short} -> {full}")
+        for k in sorted(self.tables):
+            if k == full or k.startswith(full + "."):
+                found = True
+                self.tables[moved(k)] = dataclasses.replace(self.tables[k], key=moved(k), alias_of=k)
+        if not found:
+            self.problems.append(Problem("alias-target", short,
+                                         f"alias {short} -> {full}: nothing is recorded under "
+                                         f"{full}" + (f" ({site})" if site else "")))
+
+    def _add_stat_fields(self, key: str, s: Stat, run: str | None, site: str | None, meta: dict,
                          src: str, extra: dict | None = None) -> None:
         for field in STAT_FIELDS:
             val = s.field(field)
@@ -188,7 +295,7 @@ class Index:
                             better=meta["better"] if field == "mean" else None, parent=key,
                             extra=dict(extra or {})), src)
 
-    def _add_elements(self, key: str, t: tuple, run: str, site: str | None, meta: dict,
+    def _add_elements(self, key: str, t: tuple, run: str | None, site: str | None, meta: dict,
                       src: str, extra: dict, taken: Mapping) -> None:
         """``key.0``, ``key.1``, ...: each element of a tuple value, citable on its own."""
         for i, val in enumerate(t):
@@ -208,9 +315,37 @@ class Index:
     def run_of(self, entry: Entry) -> dict | None:
         return self.runs.get(entry.run) if entry.run else None
 
+    def awaiting_build(self, key: str) -> bool:
+        """True if ``key`` is defined in vouch_values.py but not evaluated yet."""
+        return any(key == k or key.startswith(k + ".") for k in self.unevaluated)
+
     def suggest(self, key: str, n: int = 3) -> list[str]:
         import difflib
         return difflib.get_close_matches(key, list(self.entries), n=n, cutoff=0.6)
+
+
+def _claim_extra(c: dict) -> dict:
+    out = {"values": c.get("values") or {}}
+    for k in ("explanation", "margin"):
+        if c.get(k) is not None:
+            out[k] = c[k]
+    return out
+
+
+def origin(e: Entry) -> str:
+    """Where a key's value comes from: ``run:<id>`` or ``derive:<file>::<function>``."""
+    d = e.extra.get("derived")
+    if d:
+        return f"derive:{d.get('function')}"
+    return f"run:{e.run}" if e.run else ""
+
+
+def source_runs(e: Entry) -> list[str]:
+    """The runs a value rests on: its own, or every run a derivation read from."""
+    d = e.extra.get("derived")
+    if d:
+        return list(d.get("runs") or [])
+    return [e.run] if e.run else []
 
 
 def _safe_records(store: Path, idx: Index):

@@ -24,7 +24,7 @@ from typing import Any
 from . import changes as ch
 from .config import Config
 from .freshness import RunState, assess
-from .index import Entry, Index, Table
+from .index import Entry, Index, Table, source_runs
 from .issues import Issue
 from .render import Options, RenderError, Rendered, render
 from .tex import emit
@@ -57,6 +57,7 @@ class Context:
     plans: list[PaperPlan]
     changes: list[ch.Change]
     project_issues: list[Issue]
+    derived: object = None               # derive.Outcome: evaluated, written, removed
 
     @property
     def pending(self) -> dict[str, ch.Change]:
@@ -107,7 +108,29 @@ def _when(started: str | None) -> str:
     return started.replace("T", " ")[:16] + " UTC"
 
 
+def _derived_lines(e: Entry) -> list[str]:
+    """Where a derived value comes from, one plain line per fact."""
+    d = e.extra.get("derived")
+    if not d:
+        return []
+    deps = [k for k in d.get("deps") or [] if not k.startswith("keys:")]
+    lines = [f"derived by {d.get('function', '?')}" + (f" at {d['site']}" if d.get("site") else "")]
+    if deps:
+        lines.append("from " + ", ".join(deps[:6]) + (f" (+{len(deps) - 6} more)" if len(deps) > 6 else ""))
+    if d.get("inputs"):
+        lines.append("reads " + ", ".join(sorted(d["inputs"])))
+    if d.get("runs"):
+        lines.append("runs " + ", ".join(d["runs"]))
+    return lines
+
+
+def _alias_line(e: Entry) -> str:
+    return f"alias of {e.extra['alias_of']}" if e.extra.get("alias_of") else ""
+
+
 def _provenance(idx: Index, e: Entry, with_site: bool = True) -> list[str]:
+    if e.extra.get("derived"):
+        return _derived_lines(e)
     rec = idx.runs.get(e.run or "") or {}
     first = f"run {e.run}" + (f" | {e.site}" if with_site and e.site else "")
     cmd = " ".join(rec.get("command") or [])
@@ -118,9 +141,9 @@ def _provenance(idx: Index, e: Entry, with_site: bool = True) -> list[str]:
     return [first, cmd, stamp]
 
 
-def _with_state(tip: str, run: str | None, change: ch.Change | None) -> str:
+def _with_state(tip: str, runs: list[str], change: ch.Change | None) -> str:
     parts = [tip]
-    if run:
+    for run in runs:
         parts.append(r"\vouch@runstate{" + run + "}")
     if change is not None:
         parts.append(emit.tip_escape(ch.was_text(change)))
@@ -153,18 +176,26 @@ def _call_lines(e: Entry) -> list[str]:
 
 
 def value_tooltip(idx: Index, e: Entry, change: ch.Change | None = None) -> str:
-    lines = [f"{e.key} = {_num(e.raw)}", e.desc or ""] + _call_lines(e)
+    lines = [f"{e.key} = {_num(e.raw)}", e.desc or "", _alias_line(e)] + _call_lines(e)
     if e.kind == "table-cell":
         lines.append(f"table {e.parent}")
     lines += _provenance(idx, e, with_site=e.kind != "param" and not e.extra.get("call"))
-    return _with_state(emit.tooltip(lines), e.run, change)
+    return _with_state(emit.tooltip(lines), source_runs(e), change)
 
 
 def claim_tooltip(idx: Index, e: Entry, change: ch.Change | None = None) -> str:
+    lines = [f"claim {e.key}: {'HOLDS' if e.raw else 'FALSE'}", e.desc or "", _alias_line(e),
+             _claim_detail(e)]
+    return _with_state(emit.tooltip(lines + _provenance(idx, e)), source_runs(e), change)
+
+
+def _claim_detail(e: Entry) -> str:
+    """``0.932 > 0.912 (margin 2.2%)``, or the values the claim was about."""
+    expl, margin = e.extra.get("explanation"), e.extra.get("margin")
+    if expl:
+        return expl + (f" (margin {margin:.1%})" if isinstance(margin, (int, float)) else "")
     vals = e.extra.get("values") or {}
-    lines = [f"claim {e.key}: {'HOLDS' if e.raw else 'FALSE'}", e.desc or "",
-             ", ".join(f"{k}={_num(v)}" for k, v in vals.items())]
-    return _with_state(emit.tooltip(lines + _provenance(idx, e)), e.run, change)
+    return ", ".join(f"{k}={_num(v)}" for k, v in vals.items())
 
 
 def prov_latex(idx: Index, e: Entry, change: ch.Change | None = None) -> str:
@@ -175,14 +206,18 @@ def prov_latex(idx: Index, e: Entry, change: ch.Change | None = None) -> str:
     if e.desc:
         first.append(esc(e.desc))
     if e.kind == "claim":
-        vals = e.extra.get("values") or {}
-        if vals:
-            first.append(esc(", ".join(f"{k} = {_num(v)}" for k, v in vals.items())))
+        detail = _claim_detail(e)
+        if detail:
+            first.append(esc(detail))
     else:
         first.append("raw " + esc(_num(e.raw)))
     if e.kind == "table-cell":
         first.append(r"table \texttt{" + esc(e.parent or "") + "}")
     lines = [r"\quad ".join(first)]
+    if e.extra.get("alias_of"):
+        lines.append(r"alias of \texttt{" + esc(e.extra["alias_of"]) + "}")
+    if e.extra.get("derived"):
+        return _derived_latex(e, lines, change)
     call = e.extra.get("call")
     if call:
         lines += _call_latex(e, call)
@@ -200,6 +235,29 @@ def prov_latex(idx: Index, e: Entry, change: ch.Change | None = None) -> str:
     if e.run:
         stamp.append(r"\vouch@runstate{" + e.run + "}")
     lines.append(r"\quad ".join(stamp))
+    if change is not None:
+        lines.append(r"\textcolor{vouchchanged}{" + esc(ch.was_text(change)) + "}")
+    return r"{\footnotesize " + r"\newline ".join(ln for ln in lines if ln) + "}"
+
+
+def _derived_latex(e: Entry, lines: list[str], change: ch.Change | None) -> str:
+    """The appendix entry of a derived value: the definition, what it read, its runs."""
+    from .render import tex_escape as esc
+    d = e.extra["derived"]
+    fn = r"derived by \texttt{" + esc(str(d.get("function", "?"))) + "}"
+    if d.get("site"):
+        fn += r" at \texttt{" + esc(d["site"]) + "}"
+    lines.append(fn)
+    deps = [k for k in d.get("deps") or [] if not k.startswith("keys:")]
+    if deps:
+        shown = ", ".join(r"\texttt{" + esc(k) + "}" for k in deps[:8])
+        lines.append("from " + shown + (f" (+{len(deps) - 8} more)" if len(deps) > 8 else ""))
+    if d.get("inputs"):
+        lines.append("reads " + ", ".join(r"\texttt{" + esc(p) + "}" for p in sorted(d["inputs"])))
+    runs = d.get("runs") or []
+    if runs:
+        lines.append("runs " + ", ".join(r"\texttt{" + esc(r) + r"} (\vouch@runstate{" + r + "})"
+                                         for r in runs))
     if change is not None:
         lines.append(r"\textcolor{vouchchanged}{" + esc(ch.was_text(change)) + "}")
     return r"{\footnotesize " + r"\newline ".join(ln for ln in lines if ln) + "}"
@@ -333,6 +391,8 @@ def prepare_paper(cfg: Config, idx: Index, paper: dict) -> PaperPlan:
     for c in doc.citations:
         if c.kind in ("value", "raw", "claim", "table"):
             e = idx.get(c.key)
+            if e is None and idx.awaiting_build(c.key):
+                continue                 # reported once, as out-of-sync: run vouch build
             if e is None:
                 sugg = idx.suggest(c.key)
                 macro = {"value": "vouch", "raw": "vouchraw", "claim": "vouchclaim",
@@ -411,7 +471,7 @@ def emit_paper(ctx: Context, pl: PaperPlan) -> None:
         path = pl.tables_dir / f"{key}.tex"
         rel_for_tex = os.path.relpath(path, pl.main.parent).replace(os.sep, "/")
         lines.append(emit.table_line(key, rel_for_tex))
-        header = (f"GENERATED by `vouch build` from run {t.run}"
+        header = (f"GENERATED by `vouch build` from {t.origin}"
                   + (f" ({t.site})" if t.site else "") + ". Do not edit.")
         files[path] = emit.table_body(header, _table_rows(t, idx, pl.rendered, pl.issues), t.midrules)
 
@@ -444,19 +504,26 @@ def papers(cfg: Config) -> list[dict]:
     return got
 
 
-def plan(cfg: Config, *, check_env: bool = True, only: list[dict] | None = None) -> Context:
+def plan(cfg: Config, *, check_env: bool = True, only: list[dict] | None = None,
+         evaluate: bool = False) -> Context:
+    """Everything a build would write, and what is wrong. ``evaluate`` re-runs the
+    definitions in vouch_values.py when they are out of date (``vouch build``);
+    otherwise their last results are used, and staleness is reported."""
+    from .derive import prepare
     idx = Index.load(cfg)
+    outcome = prepare(cfg, idx, build=evaluate)
     project = [Issue(p.check, "error" if p.check in ("store-edited", "key-conflict") else "warning",
                      p.message, subject=p.subject,
                      fix="re-run the experiment; never edit .vouch/ by hand"
                      if p.check == "store-edited" else None)
-               for p in idx.problems]
+               for p in idx.problems + idx.conflicts()]
+    project += outcome.issues
     states = assess(cfg, idx.runs, check_env=check_env)
     plans = [prepare_paper(cfg, idx, p) for p in (only or papers(cfg))]
     baseline = ch.load_baseline(cfg)
     current, cites = ch.currents(idx, plans)
     changes = ch.compute(cfg, baseline, current, cites)
-    ctx = Context(cfg, idx, states, baseline, plans, changes, project)
+    ctx = Context(cfg, idx, states, baseline, plans, changes, project, outcome)
     for pl in plans:
         emit_paper(ctx, pl)
     return ctx
@@ -496,7 +563,7 @@ def write_files(ctx: Context) -> tuple[list[Path], list[Path]]:
 
 
 def build(cfg: Config, *, notify: bool = True) -> BuildResult:
-    ctx = plan(cfg)
+    ctx = plan(cfg, evaluate=True)
     acked = ch.auto_acknowledge(cfg, ctx.baseline, ctx.changes)
     if acked:
         done = {c.key for c in acked}
@@ -504,5 +571,7 @@ def build(cfg: Config, *, notify: bool = True) -> BuildResult:
         for pl in ctx.plans:          # the CSV reports acknowledgment: emit against the new baseline
             emit_paper(ctx, pl)
     written, unchanged = write_files(ctx)
+    if ctx.derived is not None and ctx.derived.written is not None:
+        written.insert(0, ctx.derived.written)
     fresh, err = ch.notify(cfg, ctx.changes) if notify else ([], None)
     return BuildResult(ctx, written, unchanged, acked, fresh, err)
