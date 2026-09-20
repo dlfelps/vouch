@@ -235,5 +235,13 @@ no tool for it.
 | `vouch init --agents` | set up Claude Code: skill, rules, edit hook |
 | `vouch mcp` | the lookups as MCP tools, over stdio |
 
+## Related work
+
+- **[PythonTeX](https://ctan.org/pkg/pythontex) / SageTeX / [knitr](https://third-bit.com/py-rse/provenance.html)** run code inside the LaTeX build, caching output until the code changes. vouch never runs your code at build time: recording happens once, whenever the experiment runs, and `vouch check` only reads the stored record and compares code hashes.
+- **[showyourwork](https://github.com/showyourwork/showyourwork)** rebuilds a whole paper from scripts and data via Snakemake in CI, and links each figure to the script that made it. vouch is narrower and lighter — no pipeline to own, no CI required — and it tracks individual cited numbers, not just figures.
+- **[SciKGTeX](https://arxiv.org/pdf/2304.05327)** and Moreau et al.'s provenance package annotate claims with RDF/PROV metadata for a machine-readable provenance graph. vouch doesn't build a knowledge graph; it backs a citation (`\vouch{key}`) with a JSON record and fails the check when the cited number drifts from the code that produced it.
+
+None of them catch a stale number before submission the way `vouch check` does: recording stays separate from typesetting, values are cited by key, and the check fails when the producing code changes.
+
 The full design is in [SPEC.md](SPEC.md). Browsable documentation:
 https://dlfelps.github.io/vouch/.
