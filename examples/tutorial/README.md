@@ -165,7 +165,14 @@ $ vouch cite evaluate.knn.n_train_640.acc
 \vouch[.2pct]{evaluate.knn.n_train_640.acc}  →  87.30 ± 1.41%    (fmt .2pct)
 test accuracy of knn (n_train_640), mean and std over seeds · higher is better · fresh · run experiment
 subfields: .mean 87.3% · .std 1.4% · .n 5 · .ci95 85.5-89.1% · .min 85.8% · .max 89.1%
+context   "Train one model on n_train points; return (test accuracy, train accuracy)."
 ```
+
+`evaluate` already had a docstring (it's how `knn`/`linear` are told apart in
+this tutorial's `experiment.py`), so `vouch cite` and `vouch search` show it
+back as `context:` -- read fresh from the source, a sanity check that
+`evaluate.knn.n_train_640.acc` really is what its name suggests, not a
+description vouch made up.
 
 After the first `vouch build`, `.vouch/CATALOG.md` lists every key on one line
 each. It's the file to give an LLM agent that is writing the paper with you.
@@ -448,4 +455,7 @@ it in CI.
 - **Writing with an LLM agent.** `vouch init --agents` installs a Claude Code skill
   and a hook. The hook catches a typed number or a mistyped key the moment the
   agent writes it.
+- **Revisiting a script later, or sharing it.** `vouch document experiment.py`
+  prints its own docstrings next to the real values it produced -- no paper
+  needed. `--md FILE` writes it as a Markdown snapshot.
 - The full design is in [SPEC.md](../../SPEC.md).

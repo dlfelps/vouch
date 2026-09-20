@@ -16,12 +16,12 @@ triggers on editing `.tex` in a vouch project, writing experiment code that
 produces results, or mentions of results, numbers, tables or claims. It has
 four workflows:
 
-- *Record results in an experiment* — see [While writing experiment code](index.md#while-writing-experiment-code)
-- *Write a results paragraph*: search → cite → compare → claim → check
+- *Record results in an experiment* — see [While writing experiment code](index.md#while-writing-experiment-code), including giving the function a real docstring
+- *Write a results paragraph*: search → cite (its `context:` line is the producing function's own docstring, if it has one) → compare → claim → check
 - *Handle changed values*: `vouch changes` → re-read each sentence → fix the text → report suspicious changes → ask before acking
 - *Convert an existing paper*: `suggest` → `--apply` → resolve `no-source` with the user
 
-It ends with a command cheat-sheet.
+It ends with a command cheat-sheet, including `vouch document` — see [CLI reference](../cli/inspect.md#vouch-document).
 
 ## 2. Rules block
 
@@ -35,6 +35,7 @@ can be updated in place:
 - If it doesn't exist: `record()` it in the experiment, `@vouch.derive` it, or `vouch.expect()` it and tell the user.
 - Never compute with numbers in prose (differences, ratios, "2x"): `vouch compare A B --write`, then cite the derived key.
 - Qualitative comparisons ("outperforms", "all seeds") go in `\vouchclaim` backed by a claim.
+- Give a new tracked function a real docstring -- vouch shows it back at lookup time (`vouch cite`, `vouch search`) as a sanity check. If one already exists on a function you're writing about, use it instead of guessing a description.
 - Before finishing: `vouch check --strict` must pass.
 - If `vouch changes` lists anything: re-read each cited sentence, fix wrong text, and report SUSPICIOUS changes to the user.
 - Never run `vouch ack` or `vouch accept` without the user's approval. Never edit `.vouch/` or generated files.

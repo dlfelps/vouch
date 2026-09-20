@@ -79,6 +79,7 @@ section.closed .fn { display: none; }
 .fn-head .name { font-family: var(--mono); font-weight: 600; }
 .how { font-size: 11.5px; padding: 1px 7px; border-radius: 99px; background: var(--chip); color: var(--chip-ink); }
 .fn-head .where { color: var(--muted); font-size: 12.5px; font-family: var(--mono); }
+.fn-context { padding: 0 14px 9px; margin-top: -9px; color: var(--muted); font-size: 12.5px; font-style: italic; }
 
 .row { border-top: 1px solid var(--line); }
 .row:first-of-type { border-top: 0; }
@@ -206,7 +207,7 @@ function copyBtn(label, text, title) {
 
 // -- filtering ------------------------------------------------------------------------
 function haystack(fn, it) {
-  return [it.key, it.desc, it.value, fn.name, it.call || "", it.alias_of || "",
+  return [it.key, it.desc, it.value, fn.name, fn.context || "", it.call || "", it.alias_of || "",
           (it.parts || []).map(p => p.key).join(" ")].join(" ").toLowerCase();
 }
 function visible(fn, it) {
@@ -338,7 +339,8 @@ function render() {
         h("span", { class: "how" }, fn.how),
         fn.where ? h("span", { class: "where" }, fn.where) : null,
         fn.lines && fn.lines.length > 1 ? h("span", { class: "where" }, "lines " + fn.lines.map(l => l.split(":").pop()).join(", ")) : null);
-      fns.push(h("div", { class: "fn", id }, head, items.map(it => itemRow(fn, it))));
+      const context = fn.context ? h("div", { class: "fn-context" }, fn.context) : null;
+      fns.push(h("div", { class: "fn", id }, head, context, items.map(it => itemRow(fn, it))));
       navFns.push(h("a", { class: "navfn", href: "#" + id }, fn.name, h("span", { class: "n" }, items.length)));
     }
     if (!fns.length) continue;

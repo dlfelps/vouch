@@ -57,6 +57,9 @@ def evaluate(dataset: str, model: str, seed: int = 0) -> dict:
 - Descriptions and formats for families of keys go in `vouch.toml` `[metrics]`
   (`"*.acc" = { fmt = ".1pct", better = "higher", desc = "top-1 test accuracy" }`),
   not repeated in code. Every new metric needs a desc and `better=`.
+- Give the function itself a real docstring, too: vouch reads it fresh from the
+  source and shows it back at every lookup (`vouch cite`, `vouch search`,
+  `vouch explore`) as a sanity check that a key means what it looks like it means.
 - A single number: `vouch.record(key, value, desc=...)`; a dict: `vouch.record_all(d, prefix=...)`.
 - Multi-seed results: `over="seed"` or `vouch.Stat.of(per_seed)` -- never a hand-computed mean.
 - Data read: `vouch.input(path)`; files written: `vouch.artifact(path)`; figures saved
@@ -68,6 +71,9 @@ def evaluate(dataset: str, model: str, seed: int = 0) -> dict:
 1. Find each number: `vouch search "vit accuracy cifar"` or the catalog.
 2. Paste exactly what `vouch cite KEY` prints (`\vouch{...}`, or `\vouch[.2pct]{...}`
    for another precision; `.mean`, `.std`, `.n` for parts of a mean ± std).
+   `vouch cite` also prints the producing function's docstring as `context:` when
+   it has one -- if the user already documented it, use their own wording instead
+   of guessing at a description.
 3. Differences, ratios, "2x": never compute them. `vouch compare A B --write` adds a
    `@vouch.derive` and a `@vouch.claim` to `vouch_values.py`; then `vouch build` and
    cite the derived key.
@@ -106,6 +112,7 @@ SOURCE number: each needs a run that records it, or removal.
 | `vouch changes` | cited values that moved (the user acks, not you) |
 | `vouch trace KEY` | where a value came from |
 | `vouch explore` | browse everything in a web page |
+| `vouch document [SCRIPT]` | a real-values summary of a script -- docstrings plus what it actually measured, for sharing or revisiting later; needs no paper |
 
 Never edit `.vouch/` or the generated `vouch-values.tex` / `vouch-tables/` by hand.
 """
@@ -114,6 +121,7 @@ RULES = """<!-- vouch -->
 ## Numbers in the paper (vouch)
 - Never type an empirical number into LaTeX. Find it (`vouch search`, `.vouch/CATALOG.md`), then paste what `vouch cite KEY` prints.
 - If it doesn't exist: record it in the experiment, `@vouch.derive` it, or `vouch.expect()` it and tell the user it is owed.
+- Give a new tracked function a real docstring -- vouch shows it back at lookup time (`vouch cite`, `vouch search`) as a sanity check. If one already exists on a function you're writing about, use it instead of guessing a description.
 - Never compute with numbers in prose (differences, ratios, "2x"): `vouch compare A B --write`, then cite the derived key.
 - Qualitative comparisons ("outperforms", "all seeds") go in `\\vouchclaim` backed by a claim.
 - Before finishing: `vouch build` and `vouch check --strict` must pass.

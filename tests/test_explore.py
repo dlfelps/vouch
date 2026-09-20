@@ -23,6 +23,7 @@ def proj(project):
 
         @vouch.track(over="seed")
         def evaluate(dataset, model, seed=0):
+            """Held-out accuracy for one seed."""
             return {"acc": 0.9 + seed / 100}
 
 
@@ -65,6 +66,7 @@ def test_values_are_grouped_by_script_then_function(proj):
     assert list(train) == ["evaluate", "main", "top level", "parameters"]
     ev = train["evaluate"]
     assert ev["how"] == "@vouch.track" and ev["where"] == "experiments/train.py:4"
+    assert ev["context"] == "Held-out accuracy for one seed."
     acc = ev["items"][0]
     assert acc["key"] == "evaluate.cifar.resnet.acc" and acc["value"] == "91.0 ± 1.0%"
     assert acc["snippet"] == "\\vouch{evaluate.cifar.resnet.acc}"
@@ -75,7 +77,7 @@ def test_values_are_grouped_by_script_then_function(proj):
     assert acc["state"] == "fresh" and acc["cited"] == []
     # a record() inside main() sits under main; a claim at top level under "top level"
     main = train["main"]
-    assert main["how"] == "recorded" and main["where"] == "experiments/train.py:9"
+    assert main["how"] == "recorded" and main["where"] == "experiments/train.py:10"
     table = next(i for i in main["items"] if i["key"] == "main")
     assert table["snippet"] == "\\vouchtable{main}"
     assert table["tabular"].startswith("\\begin{tabular}{lr}\n  \\toprule\n  model & acc \\\\")

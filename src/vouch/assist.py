@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from . import docextract
 from .changes import readable
 from .index import Entry, source_runs
 from .render import Options, RenderError, render, tex_escape
@@ -47,6 +48,18 @@ def origin_of(e: Entry) -> str:
     if e.extra.get("derived"):
         return "derived"
     return e.run or ""
+
+
+def context_of(ctx, e: Entry, cache: dict[str, dict[str, str]] | None = None) -> str | None:
+    """The producing function's own docstring, read fresh from its current source --
+    a sanity check that a key means what its name suggests, not a description vouch
+    made up. ``None`` when the value has no producing call, or that function has no
+    docstring."""
+    call = e.extra.get("call") or {}
+    fn_ref = call.get("function")
+    if not fn_ref:
+        return None
+    return docextract.context_for(fn_ref, ctx.cfg.root, cache)
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +156,7 @@ def search(ctx, query: str, limit: int = 10) -> list[dict]:
             scored.append((score, key, e))
     scored.sort(key=lambda s: (-s[0], len(s[1]), s[1]))
     opts = Options.from_config(ctx.cfg)
+    doc_cache: dict[str, dict[str, str]] = {}
     out = []
     for score, key, e in scored[:limit]:
         if e is None:
@@ -151,9 +165,13 @@ def search(ctx, query: str, limit: int = 10) -> list[dict]:
                         "desc": p.get("desc") or "", "origin": "vouch.expect", "state": "pending",
                         "cite": "\\vouch{" + key + "}"})
             continue
-        out.append({"key": key, "score": round(score, 3), "kind": e.kind,
-                    "value": "" if e.kind == "table" else shown(e, opts), "desc": e.desc or "",
-                    "origin": origin_of(e), "state": state_of(ctx, e), "cite": snippet(e)})
+        hit = {"key": key, "score": round(score, 3), "kind": e.kind,
+               "value": "" if e.kind == "table" else shown(e, opts), "desc": e.desc or "",
+               "origin": origin_of(e), "state": state_of(ctx, e), "cite": snippet(e)}
+        context = context_of(ctx, e, doc_cache)
+        if context:
+            hit["context"] = context
+        out.append(hit)
     return out
 
 
@@ -196,6 +214,9 @@ def cite(ctx, key: str) -> dict:
                 "suggestions": idx.suggest(key)}
     out: dict[str, Any] = {"key": key, "kind": e.kind, "desc": e.desc or "",
                            "better": e.better, "state": state_of(ctx, e), "origin": origin_of(e)}
+    context = context_of(ctx, e)
+    if context:
+        out["context"] = context
     if e.kind == "claim":
         out["snippets"] = [{"latex": snippet(e), "renders": "the prose you write (its "
                             "provenance is the claim)"}]
@@ -472,6 +493,9 @@ def describe(ctx, key: str) -> dict:
         out["call"] = {**call, "text": call_text(call)}
         if call.get("seconds"):
             out["call"]["timing"] = timing_text(call)
+    context = context_of(ctx, e)
+    if context:
+        out["context"] = context
     if e.extra.get("derived"):
         out["derived"] = e.extra["derived"]
     for f in ("alias_of", "timing"):

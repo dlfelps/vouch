@@ -25,6 +25,10 @@ it in CI.
 - **Writing with an LLM agent.** `vouch init --agents` installs a Claude Code skill
   and a hook. The hook catches a typed number or a mistyped key the moment the
   agent writes it. See [Claude Code](../llm/claude-code.md).
+- **Revisiting a script later, or sharing it.** `vouch document experiment.py`
+  prints its own docstrings next to the real values it produced -- no paper
+  needed. `--md FILE` writes it as a Markdown snapshot. See
+  [`vouch document`](../cli/inspect.md#vouch-document).
 - The full design is in [SPEC.md](https://github.com/dlfelps/vouch/blob/main/SPEC.md)
   in the repository.
 

@@ -168,6 +168,51 @@ def test_cite_gives_the_exact_snippet(proj, capsys):
                                   "fmt": "(default)"}
 
 
+DOC_EXP = '''
+    import vouch
+
+    @vouch.track(over="seed", desc="top-1 test accuracy")
+    def evaluate(dataset, model, seed=0):
+        """Train one model; return its held-out accuracy and loss."""
+        base = {"resnet": 0.93, "vit": 0.91}[model]
+        return {"acc": base + seed / 1000, "loss": 1 - base}
+
+    for m in ("resnet", "vit"):
+        for s in range(5):
+            evaluate("cifar", m, seed=s)
+'''
+
+
+@pytest.fixture
+def doc_proj(project, monkeypatch):
+    project.write("vouch.toml", '[[paper]]\nmain = "paper/main.tex"\n')
+    project.write("exp.py", DOC_EXP)
+    project.run("exp.py", check=True)
+    monkeypatch.chdir(project.root)
+    return project
+
+
+def test_docstring_shows_as_context_at_lookup_time(doc_proj, capsys):
+    from vouch.assist import cite, describe, search
+    paper(doc_proj, "x")
+    ctx = plan(Config.load(doc_proj.root), check_env=False)
+    expected = "Train one model; return its held-out accuracy and loss."
+    assert cite(ctx, "evaluate.cifar.resnet.acc")["context"] == expected
+    hits = search(ctx, "resnet accuracy")
+    assert hits and hits[0]["context"] == expected
+    assert describe(ctx, "evaluate.cifar.resnet.acc")["context"] == expected
+    capsys.readouterr()
+    assert cli.main(["cite", "evaluate.cifar.resnet.acc"]) == 0
+    assert f'context   "{expected}"' in capsys.readouterr().out
+
+
+def test_no_context_without_a_docstring(proj):
+    from vouch.assist import cite
+    paper(proj, "x")
+    ctx = plan(Config.load(proj.root), check_env=False)
+    assert "context" not in cite(ctx, "evaluate.cifar.resnet.acc")
+
+
 def test_student_t_and_welch():
     from vouch.assist import betainc, welch
     from vouch.values import Stat

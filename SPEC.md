@@ -1348,9 +1348,10 @@ vouch_values.py
   - what an alias points to
   - where the key is cited in the paper
 - **Finding.**
-  - A search box matches keys, descriptions, function names, call arguments (`model=resnet`) and values. Press `/` to focus it.
+  - A search box matches keys, descriptions, function names, function docstrings and call arguments (`model=resnet`) and values. Press `/` to focus it.
   - Filters show all, cited, or not-cited keys.
   - Each row shows its run's state (fresh, stale, …) and how often the paper cites it.
+- **Context.** Under each function's header, if it has a docstring, its first line shows underneath -- read fresh from the current source, never something vouch invents. It's a sanity check that a key means what it looks like it means, not a description.
 - **Links.** `?q=WORDS` opens the page with a search, and `?open=KEY` opens it on one key, expanded.
 - **Live.** The page checks every two seconds whether anything it shows has changed: the run records, `derived.json`, the acknowledgment and accept files, `vouch.toml`, or the paper's `.tex` files. Re-running an experiment, or citing a key, updates it in place. Problems a check would report about derived values (out of date, definition errors) appear in a banner.
 - **Safety.**
@@ -1358,6 +1359,38 @@ vouch_values.py
   - It rejects requests whose `Host` isn't the local address, so a web page can't read it through DNS rebinding.
   - It never runs project code: derived values come from `derived.json`, exactly as in `vouch check`.
 - **Snapshots.** `--html FILE` writes the same page as one self-contained file with the data embedded, for sharing with a co-author or attaching to a review. `--json` prints the data the page shows.
+
+### 12.3 Self-documenting scripts: `vouch document`
+
+A script's own docstrings, next to the real values it produced -- for sharing
+a script with someone, or coming back to it months later. Unlike everything
+else in §12-13, this needs no `[[paper]]` in `vouch.toml` at all: it reads
+only the run store.
+
+```console
+$ vouch document experiment.py
+## experiment.py
+Learning curves: a linear model against k-nearest neighbours.
+last run 2026-09-19 13:04 UTC · git 20d39fe (clean) · fresh
+
+### evaluate
+Train one model on n_train points; return (test accuracy, train accuracy).
+  evaluate.knn.n_train_640.acc    87.3 ± 1.4%   test accuracy of knn (n_train_640)   cited 1×
+  evaluate.knn.n_train_640.train_acc  87.4 ± 0.9%   training accuracy of knn (n_train_640)   not cited
+```
+
+- **Nothing invented.** Every docstring is read fresh from the current
+  source, verbatim; every value is one a run already verified. No
+  summarization, no LLM-authored text.
+- **Grouping** matches `vouch explore`: values sit under the function that
+  produced them, or "top level" for a bare `record()`/`record_all()`.
+- **Scope.** `vouch document SCRIPT` summarizes one script; `vouch document`
+  with no argument summarizes every script that has at least one recorded
+  run, sorted by path.
+- **Snapshots.** `--md FILE` writes the same content as Markdown, to commit
+  next to the script or share on its own. `--json` gives the structured form.
+- A script with no recorded run is reported as such (nothing to summarize
+  yet), never a guess.
 
 ---
 
@@ -1418,6 +1451,10 @@ cifar.vit.acc.std        1.1%          …std subfield
 cifar.resnet_vs_vit.pts  20.8          ResNet minus ViT top-1, percentage points    (derived)
 ```
 
+If a hit's producing function has a docstring, its first line is shown alongside
+as a sanity check, read fresh from the source rather than a description vouch
+invented.
+
 **`vouch cite`** returns the exact snippet, and enough context to write the sentence correctly:
 
 ```console
@@ -1426,7 +1463,12 @@ $ vouch cite cifar.resnet.acc
 \vouch[.2pct]{cifar.resnet.acc}   →  93.21 ± 0.41\%
 top-1 test accuracy on CIFAR-10, mean ± std over seeds · higher is better · fresh · run cifar_resnet
 subfields: .mean 93.2\% · .std 0.4\% · .n 5 · .ci95 [92.7, 93.7]
+context   "averages top-1 accuracy over 5 seeds, held-out test split"
 ```
+
+The `context` line only appears when the producing function has a docstring --
+it's read fresh from the current source at lookup time, and is never generated
+by vouch itself.
 
 **`vouch compare`** does the arithmetic and writes the code that makes it citable. For two Stats it also reports the difference in pooled standard deviations and a Welch t-test p-value (computed with the standard library: Student's t through the regularized incomplete beta function). When p ≥ 0.05 it says so: don't write "significantly". `--write` appends the definitions to the first values module, and refuses if either key is already defined there. `better=` decides the winner, so for a lower-is-better metric the claim is `vouch.lt(winner, loser)`.
 
@@ -1481,6 +1523,7 @@ The skill (§13.5) teaches this pattern, and `record()`'s warnings enforce it:
 - prefer one `record_all(metrics, prefix=…)` at the end of an experiment over many scattered `record()` calls, and add a `[metrics]` pattern in `vouch.toml` for any new metric name rather than repeating `desc`/`fmt` in code
 - data goes through `run.input()`, outputs through `run.artifact()`; figures are saved inside the run
 - parameters go through `params=`, so hyperparameters in the paper are citable
+- give the function a real docstring, too -- vouch reads it fresh from the source and shows it back at every lookup (`vouch cite`, `vouch search`, `vouch explore`) as a sanity check that a key means what it looks like it means
 
 `vouch status --json` gives an agent the stale runs and their exact re-run commands. `vouch todo --json` gives the owed experiments.
 
@@ -1490,12 +1533,12 @@ Each of the three parts is optional, and the command shows a diff before writing
 
 **1. Skill: `.claude/skills/vouch/SKILL.md`.** It loads only when relevant, so it costs no context otherwise. Its description triggers on editing `.tex` in a vouch project, writing experiment code that produces results, or mentions of results, numbers, tables or claims. It has four workflows:
 
-- *Record results in an experiment* (§13.4)
-- *Write a results paragraph*: search → cite → compare → claim → check
+- *Record results in an experiment* (§13.4), including giving the function a real docstring
+- *Write a results paragraph*: search → cite (its `context:` line is the producing function's own docstring, if it has one) → compare → claim → check
 - *Handle changed values*: `vouch changes` → re-read each sentence → fix the text → report suspicious changes → ask before acking
 - *Convert an existing paper*: `suggest` → `--apply` → resolve `no-source` with the user
 
-It ends with a command cheat-sheet.
+It ends with a command cheat-sheet, including `vouch document` (§12.3).
 
 **2. Rules block** appended to `CLAUDE.md` (or `AGENTS.md`), between `<!-- vouch -->` markers so it can be updated in place:
 
@@ -1506,6 +1549,7 @@ It ends with a command cheat-sheet.
 - If it doesn't exist: `record()` it in the experiment, `@vouch.derive` it, or `vouch.expect()` it and tell the user.
 - Never compute with numbers in prose (differences, ratios, "2x"): `vouch compare A B --write`, then cite the derived key.
 - Qualitative comparisons ("outperforms", "all seeds") go in `\vouchclaim` backed by a claim.
+- Give a new tracked function a real docstring -- vouch shows it back at lookup time (`vouch cite`, `vouch search`) as a sanity check. If one already exists on a function you're writing about, use it instead of guessing a description.
 - Before finishing: `vouch check --strict` must pass.
 - If `vouch changes` lists anything: re-read each cited sentence, fix wrong text, and report SUSPICIOUS changes to the user.
 - Never run `vouch ack` or `vouch accept` without the user's approval. Never edit `.vouch/` or generated files.

@@ -81,7 +81,12 @@ $ vouch cite evaluate.cifar.vit.acc     # the exact snippet, what it renders as,
 \vouch[.2pct]{evaluate.cifar.vit.acc}  →  90.59 ± 0.44%  (fmt .2pct)
 top-1 test accuracy · higher is better · fresh · run experiments.train
 subfields: .mean 90.6% · .std 0.4% · .n 5 · .ci95 90.0-91.1% · .min 90.2% · .max 91.1%
+context   "averages top-1 accuracy over 5 seeds, held-out test split"
 ```
+
+The `context` line is the producing function's own docstring, read fresh from
+the source -- a sanity check that a key means what it looks like it means,
+never a description vouch invented.
 
 `.vouch/CATALOG.md`, rewritten by every build, lists every citable key on one line
 each: the file an agent reads first.
@@ -220,6 +225,7 @@ no tool for it.
 | `vouch suggest [--apply]` | turn numbers typed into the paper into citations |
 | `vouch todo` | values the paper cites that no run has recorded yet |
 | `vouch ls` / `vouch trace` / `vouch status` | list keys, see where a value came from, see which runs are stale |
+| `vouch document [SCRIPT] [--md FILE]` | a script's own docstrings next to the real values it produced -- for sharing or revisiting later, no paper needed |
 | `vouch changes` / `vouch ack` / `vouch review` | cited values that moved since they were last read |
 | `vouch accept RUN --why ...` | a reviewed staleness that doesn't affect the result |
 | `vouch run` / `vouch import` | record runs of other languages; register existing results files |

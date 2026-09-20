@@ -580,6 +580,10 @@ def _trace_key(ctx, key: str, args, indent: str = "") -> int:
                 out.append(f"  each call {each}")
             if call.get("sites"):
                 out.append(f"  called at {', '.join(call['sites'][:6])}")
+            from .assist import context_of
+            context = context_of(ctx, e)
+            if context:
+                out.append(f'  context   "{context}"')
         out.append(f"  command   {' '.join(rec.get('command') or []) or '-'}"
                    + ("   (declared, not observed)" if (rec.get("imported") or {}).get("command")
                       else ""))
@@ -618,6 +622,28 @@ def _trace_key(ctx, key: str, args, indent: str = "") -> int:
         out.append(f"  pending   {ch.was_text(change)} -- re-read, then vouch ack {key}")
     for line in out:
         C.out(indent + line)
+    return EXIT_OK
+
+
+def cmd_document(args) -> int:
+    from .document import render_markdown, render_text, summarize, to_json
+    try:
+        cfg, ctx = _ctx(args, "document")
+    except _Fatal as f:
+        return _fatal(f.cmd, f.exc)
+    summaries = summarize(ctx, args.script)
+    if not summaries:
+        C.err(f"vouch document: no recorded run for {args.script or 'any script in this project'}")
+        return EXIT_FAIL
+    if args.json:
+        print(_envelope("document", True, scripts=to_json(summaries)))
+        return EXIT_OK
+    if args.md:
+        Path(args.md).write_text(render_markdown(summaries), encoding="utf-8", newline="\n")
+        C.out(f"wrote {args.md} ({len(summaries)} script(s)); a snapshot -- re-run to refresh it")
+        return EXIT_OK
+    for line in render_text(summaries):
+        C.out(line)
     return EXIT_OK
 
 
@@ -675,7 +701,10 @@ def cmd_search(args) -> int:
     for h in hits:
         tail = ", ".join(x for x in (h["origin"], h["state"] if h["state"] not in ("fresh", "cosmetic")
                                      else "") if x)
-        C.out(f"{h['key']:<{w}}  {h['value']:<{v}}  {h['desc'][:60]}" + (f"   ({tail})" if tail else ""))
+        line = f"{h['key']:<{w}}  {h['value']:<{v}}  {h['desc'][:60]}" + (f"   ({tail})" if tail else "")
+        if h.get("context"):
+            line += f'   — "{h["context"][:50]}"'
+        C.out(line)
     return EXIT_OK
 
 
@@ -726,6 +755,8 @@ def cmd_cite(args) -> int:
     if info.get("subfields"):
         C.out("subfields: " + " · ".join(f".{s['key'].rsplit('.', 1)[1]} {s['renders']}"
                                          for s in info["subfields"]))
+    if info.get("context"):
+        C.out(f'context   "{info["context"]}"')
     return EXIT_OK
 
 
@@ -1141,7 +1172,9 @@ def make_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", metavar="COMMAND")
 
     def add(name, fn, help_):
-        sp = sub.add_parser(name, help=help_, description=help_)
+        # argparse expands "%"-specs in the subcommand-list `help`, but not in
+        # `description` -- escape only the copy that goes through expansion.
+        sp = sub.add_parser(name, help=help_.replace("%", "%%"), description=help_)
         sp.add_argument("--root", help="project root (default: nearest vouch.toml)")
         sp.set_defaults(fn=fn)
         return sp
@@ -1187,6 +1220,12 @@ def make_parser() -> argparse.ArgumentParser:
     sp = add("trace", cmd_trace, "where a value came from (a key, a tex file:line, or a script)")
     sp.add_argument("target")
     sp.add_argument("--code", action="store_true", help="list every code unit")
+    sp.add_argument("--json", action="store_true")
+
+    sp = add("document", cmd_document, "a real-values summary of a script: docstrings plus what "
+             "it actually measured")
+    sp.add_argument("script", nargs="?", help="one script (default: every script with a run)")
+    sp.add_argument("--md", metavar="FILE", help="write a Markdown snapshot instead")
     sp.add_argument("--json", action="store_true")
 
     add("catalog", cmd_catalog, "rewrite .vouch/CATALOG.md (every build does too)")

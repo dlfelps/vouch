@@ -49,6 +49,10 @@ are read-only, except that `compare` may write the definition when asked:
 | `check(strict=True)` | the `vouch/1` envelope |
 | `trace(target)` | `vouch trace` |
 
+`search_values`, `get_value`, `cite` and `trace` include a `context` field when
+the value's producing function has a docstring -- its first line, read fresh
+from the current source at call time, never text vouch generates.
+
 Resource: `vouch://catalog` (the catalog, rendered fresh). `ack` and `accept`
 are deliberately **not** exposed: acknowledgment and acceptance stay human
 actions.

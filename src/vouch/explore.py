@@ -33,6 +33,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from . import changes as ch
+from . import docextract
 from .config import Config
 from .index import Entry, Index, source_runs
 from .render import Options, RenderError, render, tex_escape
@@ -141,6 +142,7 @@ class _Builder:
         self.opts = Options.from_config(cfg)
         self.cites, self.tex_files, self.paper_dir = _citations(cfg)
         self.functions = _Functions(cfg.root)
+        self.doc_cache: dict[str, dict[str, str]] = {}
         self.children: dict[str, list[Entry]] = {}
         for e in self.idx.entries.values():
             if e.kind in ("stat-field", "element") and e.parent:
@@ -237,11 +239,16 @@ class _Builder:
     def model(self) -> dict[str, Any]:
         scripts: dict[str, dict] = {}
 
-        def group(script: str, fid: str, name: str, how: str, where: str, line: int) -> dict:
+        def group(script: str, fid: str, name: str, how: str, where: str, line: int,
+                  fn_ref: str = "") -> dict:
             s = scripts.setdefault(script, {"script": script, "runs": [], "functions": {}})
             g = s["functions"].setdefault(fid, {"name": name, "how": how, "where": where,
                                                 "line": line, "items": []})
             g["line"] = min(g["line"], line) if line else g["line"]    # where it first appears
+            if fn_ref and "context" not in g:
+                context = docextract.context_for(fn_ref, self.cfg.root, self.doc_cache)
+                if context:
+                    g["context"] = context
             return g
 
         for key in sorted(self.idx.entries, key=natural_key):
@@ -258,7 +265,7 @@ class _Builder:
                 file, _, qual = fn.partition("::")
                 line = _line(d.get("site"))
                 group(file or "vouch_values.py", fn, qual or fn, "derived", d.get("site") or "",
-                      line)["items"].append(self.item(e))
+                      line, fn_ref=fn)["items"].append(self.item(e))
                 continue
             rec = self.idx.runs.get(e.run or "") or {}
             script = rec.get("entry") or f"run {e.run}"
@@ -267,15 +274,16 @@ class _Builder:
                 fn = str(call.get("function") or "?")
                 file, _, qual = fn.partition("::")
                 how = call.get("via") or "@vouch.track"
-                g = group(script, fn, qual, how, e.site or file, _line(e.site))
+                g = group(script, fn, qual, how, e.site or file, _line(e.site), fn_ref=fn)
             elif e.kind == "param":
                 g = group(script, f"params:{e.run}", "parameters", "params", "", 10 ** 8)
             else:
                 file, qual, line = self.functions.at(e.site)
                 top = qual == "<module>"
-                g = group(script, f"{file}::{qual}", "top level" if top else qual, "recorded",
+                fid = f"{file}::{qual}"
+                g = group(script, fid, "top level" if top else qual, "recorded",
                           (file if file != script else "") if top else f"{file}:{line}",
-                          _line(e.site) if top else line)
+                          _line(e.site) if top else line, fn_ref=fid)
                 g.setdefault("lines", [])
                 if e.site and e.site not in g["lines"]:
                     g["lines"].append(e.site)
@@ -285,7 +293,7 @@ class _Builder:
             fn = str(p.get("function") or "")
             file, _, qual = fn.partition("::")
             g = (group(file or self._values_module(), fn, qual, "derived", p.get("site") or "",
-                       _line(p.get("site")))
+                       _line(p.get("site")), fn_ref=fn)
                  if p.get("waits") else
                  group(self._values_module(), "expected", "expected", "vouch.expect", "", 10 ** 7))
             g["items"].append({"key": key, "kind": "pending", "value": "pending",
@@ -303,9 +311,10 @@ class _Builder:
             script = rec.get("entry") or f"run {fig.run}"
             file, qual, line = self.functions.at(fig.site)
             top = qual == "<module>"
-            g = group(script, f"{file}::{qual}", "top level" if top else qual, "recorded",
+            fid = f"{file}::{qual}"
+            g = group(script, fid, "top level" if top else qual, "recorded",
                       (file if file != script else "") if top else f"{file}:{line}",
-                      _line(fig.site) if top else line)
+                      _line(fig.site) if top else line, fn_ref=fid)
             g["items"].append(self.figure(path, fig))
 
         for run, rec in sorted(self.idx.runs.items()):

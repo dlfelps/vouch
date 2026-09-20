@@ -42,6 +42,7 @@ $ vouch cite evaluate.cifar.vit.acc     # the exact snippet, what it renders as,
 \vouch[.2pct]{evaluate.cifar.vit.acc}  →  90.59 ± 0.44%  (fmt .2pct)
 top-1 test accuracy · higher is better · fresh · run experiments.train
 subfields: .mean 90.6% · .std 0.4% · .n 5 · .ci95 90.0-91.1% · .min 90.2% · .max 91.1%
+context   "averages top-1 accuracy over 5 seeds, held-out test split"
 ```
 
 ![vouch explore browsing recorded values by script and function](assets/images/explore-ui-overview.png)
