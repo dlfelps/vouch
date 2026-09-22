@@ -93,6 +93,10 @@ wrong ("the best", "roughly doubles"); report SUSPICIOUS changes to the user (th
 may be bugs). Only the user acknowledges: never run `vouch ack` or `vouch accept`
 yourself.
 
+After the user re-runs an experiment, `vouch diff` says what the re-run did to every
+recorded value (cited or not) since the last commit: old -> new, delta, direction,
+better/worse. Use it to summarize a re-run; don't guess from memory.
+
 ## Convert an existing paper
 
 `vouch suggest` classifies every typed number: replaceable (exactly one recorded
@@ -110,6 +114,7 @@ SOURCE number: each needs a run that records it, or removal.
 | `vouch build` | evaluate `vouch_values.py`, regenerate the LaTeX and the catalog |
 | `vouch check --strict [--json]` | the gate; `--json` lists issues in the order to fix them |
 | `vouch changes` | cited values that moved (the user acks, not you) |
+| `vouch diff [REV]` | every recorded value that moved since a commit (default HEAD) |
 | `vouch trace KEY` | where a value came from |
 | `vouch explore` | browse everything in a web page |
 | `vouch document [SCRIPT]` | a real-values summary of a script -- docstrings plus what it actually measured, for sharing or revisiting later; needs no paper |

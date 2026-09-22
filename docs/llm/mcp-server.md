@@ -46,6 +46,7 @@ are read-only, except that `compare` may write the definition when asked:
 | `compare(a, b, write=False)` | arithmetic plus derive/claim code |
 | `list_pending()` | `vouch todo` |
 | `list_changes()` | `vouch changes` |
+| `diff_values(rev="HEAD", to=None, cited=False)` | `vouch diff --json` |
 | `check(strict=True)` | the `vouch/1` envelope |
 | `trace(target)` | `vouch trace` |
 

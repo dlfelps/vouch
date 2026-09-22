@@ -218,6 +218,7 @@ no tool for it.
 |---|---|
 | `vouch init` | set up `vouch.toml`, `.vouch/` and `paper/vouch.sty` |
 | `vouch build` | evaluate `vouch_values.py`, write the generated LaTeX, report changes |
+| `vouch watch [--then CMD]` | rebuild whenever new values are recorded or the paper changes |
 | `vouch check [--strict]` | the gate (exit 0 pass, 1 fail, 2 could not check) |
 | `vouch explore` | browse every recorded value; copy the LaTeX that cites it |
 | `vouch search` / `vouch cite` | find a key by words / the exact snippet to paste |
@@ -226,6 +227,7 @@ no tool for it.
 | `vouch todo` | values the paper cites that no run has recorded yet |
 | `vouch ls` / `vouch trace` / `vouch status` | list keys, see where a value came from, see which runs are stale |
 | `vouch document [SCRIPT] [--md FILE]` | a script's own docstrings next to the real values it produced -- for sharing or revisiting later, no paper needed |
+| `vouch diff [REV [REV2]]` | what a re-run changed: every recorded value vs a commit, with Δ, direction and better/worse |
 | `vouch changes` / `vouch ack` / `vouch review` | cited values that moved since they were last read |
 | `vouch accept RUN --why ...` | a reviewed staleness that doesn't affect the result |
 | `vouch run` / `vouch import` | record runs of other languages; register existing results files |

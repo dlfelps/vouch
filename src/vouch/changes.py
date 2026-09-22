@@ -176,18 +176,18 @@ def currents(idx: Index, plans) -> tuple[dict[str, Current], dict[str, list[Citi
 # comparing
 # ---------------------------------------------------------------------------
 
-def _same(a: Any, b: Any) -> bool:
+def same(a: Any, b: Any) -> bool:
     if isinstance(a, dict) and isinstance(b, dict):
-        return a.keys() == b.keys() and all(_same(a[k], b[k]) for k in a)
+        return a.keys() == b.keys() and all(same(a[k], b[k]) for k in a)
     if isinstance(a, list) and isinstance(b, list):
-        return len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b))
+        return len(a) == len(b) and all(same(x, y) for x, y in zip(a, b))
     if isinstance(a, (int, float)) and isinstance(b, (int, float)) \
             and not isinstance(a, bool) and not isinstance(b, bool):
         return a == b or math.isclose(a, b, rel_tol=1e-12, abs_tol=0.0)
     return a == b
 
 
-def _primary(kind: str, raw: Any) -> list[float]:
+def primary(kind: str, raw: Any) -> list[float]:
     """The numbers a change is judged on: the value, a Stat's mean, a tuple's items."""
     def f(x):
         if isinstance(x, dict) and "$float" in x:
@@ -213,7 +213,7 @@ def heuristics(old: dict, new: Current, rel_threshold: float) -> tuple[list[str]
     if old.get("type") != new.type:
         reasons.append(f"type changed ({old.get('type')} -> {new.type})")
         return reasons, None, None
-    a, b = _primary(new.type, old.get("raw")), _primary(new.type, new.raw)
+    a, b = primary(new.type, old.get("raw")), primary(new.type, new.raw)
     delta = rel = None
     if a and b and len(a) == len(b):
         worst = 0.0
@@ -255,7 +255,7 @@ def compute(cfg: Config, baseline: dict[str, dict], current: dict[str, Current],
             if old.get("raw") != cur.raw:
                 out.append(Change(key, "figure-changed", ["the figure file changed"], old, cur, where))
             continue
-        same_raw = _same(old.get("raw"), cur.raw) and old.get("type") == cur.type
+        same_raw = same(old.get("raw"), cur.raw) and old.get("type") == cur.type
         same_text = sorted(old.get("rendered", [])) == sorted(cur.rendered)
         moved_source = old.get("source") != cur.source
         if same_raw and not moved_source:
@@ -365,13 +365,17 @@ def readable(text: str) -> str:
     return text.replace(r"\%", "%").replace(r"\_", "_").replace(r"\&", "&").replace(r"\#", "#")
 
 
-def describe_delta(ch: Change) -> str:
+def delta_text(delta: float | None, rel: float | None, plain: list[str]) -> str:
     """Δ in the units the paper prints: percentage points for percentages."""
-    if ch.delta is None or ch.rel is None:
+    if delta is None or rel is None:
         return ""
-    if any(r"\%" in p for p in ch.new.plain):
-        return f"Δ {100 * ch.delta:+.3g} pts, {ch.rel:+.1%} relative"
-    return f"Δ {ch.delta:+.4g}, {ch.rel:+.1%}"
+    if any(r"\%" in p for p in plain):
+        return f"Δ {100 * delta:+.3g} pts, {rel:+.1%} relative"
+    return f"Δ {delta:+.4g}, {rel:+.1%}"
+
+
+def describe_delta(ch: Change) -> str:
+    return delta_text(ch.delta, ch.rel, ch.new.plain)
 
 
 def was_text(ch: Change) -> str:

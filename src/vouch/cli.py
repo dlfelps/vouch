@@ -233,6 +233,12 @@ def cmd_build(args) -> int:
             changes=[c.to_json() for c in res.ctx.changes if c.pending],
             acknowledged=[c.to_json() for c in res.auto_acked]))
         return EXIT_OK
+    _print_build(cfg, res)
+    return EXIT_OK
+
+
+def _print_build(cfg: Config, res) -> None:
+    """What `vouch build` prints; `vouch watch` prints the same after every rebuild."""
     written = set(res.written)
     dv = res.ctx.derived
     if dv is not None and dv.evaluated:
@@ -261,6 +267,52 @@ def cmd_build(args) -> int:
     print_changes(res.ctx.changes)
     if res.notify_error:
         C.out(f"  ! {res.notify_error}")
+
+
+def cmd_watch(args) -> int:
+    import time
+    from .watch import Watcher
+    try:
+        w = Watcher(_root(args), notify=not args.no_notify, then=args.then)
+    except ConfigError as exc:
+        return _fatal("watch", exc)
+
+    def report(changed: list, rb) -> None:
+        stamp = time.strftime("%H:%M:%S")
+        if changed:
+            names = [w.cfg.rel(p) for p in changed]
+            more = f" (+{len(names) - 4} more)" if len(names) > 4 else ""
+            C.out("")
+            C.out(f"[{stamp}] {', '.join(names[:4])}{more} changed")
+        else:
+            C.out(f"[{stamp}] vouch watch: building, then watching for new values "
+                  f"(Ctrl-C to stop)")
+        if rb.error:
+            C.out(f"  ✗ build failed: {rb.error}")
+            C.out("  (still watching; fix it and save)")
+            return
+        if rb.moved:
+            C.out(f"  {len(rb.moved)} value(s) moved since the last build:")
+            print_diff(rb.moved, indent="    ")
+        if args.quiet:
+            for i in [i for pl in rb.result.plans for i in pl.issues] + rb.result.issues:
+                if i.severity == "error":
+                    _print_issue(i)
+            pending = sum(c.pending for c in rb.result.ctx.changes)
+            wrote = len(rb.result.written)
+            C.out(f"  {'wrote ' + str(wrote) + ' file(s)' if wrote else 'unchanged'}"
+                  + (f"; {pending} pending change(s): `vouch review`" if pending else ""))
+        else:
+            _print_build(w.cfg, rb.result)
+        if rb.then_rc is not None:
+            C.out(f"  {'✓' if rb.then_rc == 0 else '✗'} {args.then}"
+                  + ("" if rb.then_rc == 0 else f" (exit {rb.then_rc})"))
+
+    try:
+        w.run(report, interval=max(args.interval, 0.1))
+    except KeyboardInterrupt:
+        C.out("")
+        C.out("vouch watch: stopped")
     return EXIT_OK
 
 
@@ -404,16 +456,8 @@ def cmd_ls(args) -> int:
         ctx = plan(cfg, need_paper=False, check_env=False)
     except (BuildError, ConfigError, FileNotFoundError) as exc:
         return _fatal("ls", exc)
-    counts: dict[str, int] = {}
-    for pl in ctx.plans:
-        for c in pl.doc.citations:
-            counts[c.key] = counts.get(c.key, 0) + 1
-            if c.kind == "table" and c.key in ctx.idx.tables:      # a cited table cites its cells
-                t = ctx.idx.tables[c.key]
-                for i in range(len(t.rows)):
-                    for col in t.columns:
-                        ck = t.cell_key(i, col)
-                        counts[ck] = counts.get(ck, 0) + 1
+    from .vdiff import cite_counts
+    counts = cite_counts(ctx.plans, ctx.idx.tables)
     rendered = ctx.plans[0].rendered if ctx.plans else {}
     rows = []
     from .values import natural_key
@@ -1056,6 +1100,103 @@ def _changes_md(pending) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# diff
+# ---------------------------------------------------------------------------
+
+_MARK = {"added": "+", "removed": "-", "changed": " "}
+_ARROW = {"up": "↑", "down": "↓"}
+
+
+def diff_line(d, width: int = 0) -> str:
+    """One line of `vouch diff` (and of `vouch watch`)."""
+    key = f"{d.key:<{width}}"
+    cited = "●" if d.cited else " "
+    mark = "~" if d.kind == "figure" and d.cls == "changed" else _MARK[d.cls]
+    if d.kind == "figure":
+        what = {"added": "new figure", "removed": "figure removed",
+                "changed": "the figure file changed"}[d.cls]
+        return f"{mark} {cited} {key}   {what} ({'; '.join(d.reasons)})"
+    if d.cls == "added":
+        return f"{mark} {cited} {key}   {d.new}"
+    if d.cls == "removed":
+        return f"{mark} {cited} {key}   {d.old}"
+    parts = [f"{d.old} → {d.new}"]
+    move = " ".join(x for x in (_ARROW.get(d.direction, ""), d.delta_text()) if x)
+    if move:
+        parts.append(move)
+    if d.verdict:
+        parts.append(d.verdict)
+    line = f"{mark} {cited} {key}   " + "   ".join(parts)
+    if d.reasons:
+        line += "   ! " + "; ".join(d.reasons)
+    return line
+
+
+def print_diff(items: list, indent: str = "  ") -> None:
+    group = None
+    width = min(max((len(d.key) for d in items), default=0), 40)
+    for d in items:
+        if d.group != group:
+            group = d.group
+            C.out(f"{indent}{group}")
+        C.out(f"{indent}  {diff_line(d, width)}")
+
+
+def cmd_diff(args) -> int:
+    from .build import BuildError
+    from .vdiff import DiffError, diff
+    if len(args.revs) > 2:
+        return _fatal("diff", ValueError("give at most two revisions: vouch diff [REV [REV2]]"))
+    frm = args.revs[0] if args.revs else "HEAD"
+    to = args.revs[1] if len(args.revs) > 1 else None
+    try:
+        cfg = _config(args)
+        res = diff(cfg, frm, to, keys=args.key or [], cited_only=args.cited, subfields=args.all)
+    except (DiffError, BuildError, ConfigError, FileNotFoundError) as exc:
+        return _fatal("diff", exc)
+    if args.json:
+        print(_envelope("diff", True, **res.to_json()))
+        return EXIT_OK
+    if args.md:
+        Path(args.md).write_text(_diff_md(res), encoding="utf-8", newline="\n")
+        C.out(f"wrote {args.md} ({len(res.items)} difference(s))")
+        return EXIT_OK
+    C.out(f"vouch diff: {res.frm} → {res.to} · {res.count('changed')} changed · "
+          f"{res.count('added')} added · {res.count('removed')} removed · "
+          f"{res.unchanged} unchanged")
+    for n in res.notes:
+        C.out(f"  note: {n}")
+    if not res.items:
+        return EXIT_OK
+    C.out("")
+    print_diff(res.items)
+    if any(d.cited for d in res.items):
+        C.out("")
+        C.out("  ● cited in the paper; `vouch changes` lists the sentences to re-read")
+    return EXIT_OK
+
+
+def _diff_md(res) -> str:
+    lines = [f"# Recorded values: `{res.frm}` → {res.to if res.to == 'working tree' else f'`{res.to}`'}",
+             "", f"{res.count('changed')} changed · {res.count('added')} added · "
+             f"{res.count('removed')} removed · {res.unchanged} unchanged. "
+             "**Bold** keys are cited in the paper.", ""]
+    for n in res.notes:
+        lines += [f"> note: {n}", ""]
+    group = None
+    for d in res.items:
+        if d.group != group:
+            group = d.group
+            lines += ["", f"### {group}", "", "| | key | was | now | change | |", "|---|---|---|---|---|---|"]
+        key = f"**`{d.key}`**" if d.cited else f"`{d.key}`"
+        move = " ".join(x for x in (_ARROW.get(d.direction, ""), d.delta_text(), d.verdict or "") if x)
+        esc = lambda x: (x or "").replace("|", r"\|")  # noqa: E731
+        lines.append(f"| {_MARK[d.cls].strip() or '~'} | {key} | {esc(d.old)} | {esc(d.new)} | "
+                     f"{esc(move)} | {esc('; '.join(d.reasons))} |")
+    return "\n".join(lines) + "\n"
+
+
 def cmd_ack(args) -> int:
     from .build import BuildError, build
     try:
@@ -1192,7 +1333,16 @@ def make_parser() -> argparse.ArgumentParser:
     sp.add_argument("--json", action="store_true", help="machine-readable summary")
     sp.add_argument("--no-notify", action="store_true", help="don't run the on_change hook")
 
-    sp = add("check", cmd_check, "the gate: cited values exist, are fresh, and are acknowledged")
+    sp = add("watch", cmd_watch, "rebuild whenever a run records values, or the paper or "
+             "vouch_values.py changes")
+    sp.add_argument("--interval", type=float, default=1.0, help="seconds between polls (default 1)")
+    sp.add_argument("--then", metavar="CMD",
+                    help="run this after each build that wrote files, "
+                    "e.g. 'latexmk -pdf paper/main.tex'")
+    sp.add_argument("--no-notify", action="store_true", help="don't run the on_change hook")
+    sp.add_argument("--quiet", action="store_true", help="one line per build, plus moved values")
+
+    sp = add("check", cmd_check, "the gate:cited values exist, are fresh, and are acknowledged")
     sp.add_argument("--strict", action="store_true", help="treat warnings as errors (CI, agents)")
     sp.add_argument("--quiet", action="store_true", help="print only problems")
     sp.add_argument("--verbose", action="store_true", help="also print informational notes")
@@ -1286,6 +1436,17 @@ def make_parser() -> argparse.ArgumentParser:
     sp = add("changes", cmd_changes, "cited values that changed since last acknowledged")
     sp.add_argument("--json", action="store_true")
     sp.add_argument("--md", metavar="FILE", help="write a shareable Markdown review report")
+
+    sp = add("diff", cmd_diff, "what recorded values moved between git revisions "
+             "(default: HEAD vs the working tree)")
+    sp.add_argument("revs", nargs="*", metavar="REV", help="REV (vs working tree) or REV REV2")
+    sp.add_argument("--key", action="append", metavar="PATTERN",
+                    help="only keys matching this substring or glob (repeatable)")
+    sp.add_argument("--cited", action="store_true", help="only keys the paper cites")
+    sp.add_argument("--all", action="store_true",
+                    help="also each mean ± std's subfields and tuple elements")
+    sp.add_argument("--json", action="store_true")
+    sp.add_argument("--md", metavar="FILE", help="write a Markdown report (e.g. for a PR)")
 
     sp = add("ack", cmd_ack, "acknowledge changed values after re-reading their sentences")
     sp.add_argument("keys", nargs="*",

@@ -8,6 +8,7 @@ supports them and falls back to ASCII otherwise.
 |---|---|
 | [`vouch init`](setup.md#vouch-init) | Writes `vouch.toml`, detects the main `.tex`, copies `vouch.sty`, prints the `\usepackage` line to add. |
 | [`vouch build`](setup.md#vouch-build) | Evaluates `vouch_values.py`, renders the values file, tables and catalog, reports changes. |
+| [`vouch watch`](setup.md#vouch-watch) | Rebuild whenever a run records values or the paper or `vouch_values.py` changes; prints what moved. |
 | [`vouch check`](check.md#vouch-check) | The gate. Read-only. Target: under 1 s. |
 | [`vouch status`](inspect.md#vouch-status) | Freshness per run, with the exact re-run command. |
 | [`vouch ls`](inspect.md#vouch-ls) | Keys with rendered value, description, run, freshness and citation count. |
@@ -19,6 +20,7 @@ supports them and falls back to ASCII otherwise.
 | [`vouch suggest`](author.md#vouch-suggest) | Match bare numbers already in the paper to keys. |
 | [`vouch todo`](inspect.md#vouch-todo) | Pending `expect()` keys with their producer commands. |
 | [`vouch changes`](check.md#vouch-changes) | Pending changes to cited values, with the citing sentences. |
+| [`vouch diff`](check.md#vouch-diff) | Every recorded value that moved between git revisions (default: `HEAD` vs the working tree), with Δ, direction and better/worse. |
 | [`vouch review`](check.md#vouch-review) | Interactive review of pending changes. |
 | [`vouch ack`](check.md#vouch-ack) | Acknowledge changes. |
 | [`vouch accept`](check.md#vouch-accept) | Record a reviewed staleness. |

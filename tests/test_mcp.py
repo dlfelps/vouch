@@ -64,7 +64,7 @@ def test_handshake_and_listing(proj):
     assert s.handle({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
     names = [t["name"] for t in rpc(s, "tools/list")["result"]["tools"]]
     assert names == ["search_values", "get_value", "cite", "compare", "list_pending",
-                     "list_changes", "check", "trace"]
+                     "list_changes", "diff_values", "check", "trace"]
     assert "ack" not in " ".join(names) and "accept" not in " ".join(names)
     read_only = {t["name"] for t in TOOLS if t["annotations"]["readOnlyHint"]}
     assert read_only == set(names) - {"compare"}
@@ -118,6 +118,8 @@ def test_tool_errors_go_to_the_model(proj):
     assert res["isError"] and "missing ['key']" in data["error"]
     res, data = call(s, "trace", target="nowhere")
     assert res["isError"]
+    res, data = call(s, "diff_values")                  # the project is not a git repository
+    assert res["isError"] and "git" in data["error"]
     assert rpc(s, "tools/call", {"name": "ack", "arguments": {}})["error"]["code"] == -32602
     elsewhere = Server(proj.root.parent)                 # no vouch.toml there
     res, data = call(elsewhere, "search_values", query="x")

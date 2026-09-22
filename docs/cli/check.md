@@ -1,4 +1,4 @@
-# Check & review: check, changes, review, ack, accept
+# Check & review: check, changes, diff, review, ack, accept
 
 ## `vouch check`
 
@@ -36,6 +36,71 @@ $ vouch changes [--json] [--md FILE] [--root DIR]
 ```
 
 `--md FILE` writes a shareable Markdown review report, e.g. for co-authors.
+
+## `vouch diff`
+
+What moved between two states of the store: every recorded value, parameter,
+claim, table cell and figure, not only the cited ones. The default is the last
+commit (`HEAD`) against the values on disk now. Run it before committing a
+re-run's records, or to write up a PR.
+
+```console
+$ vouch diff [REV [REV2]] [--key PATTERN]... [--cited] [--all] [--json] [--md FILE] [--root DIR]
+```
+
+| Form / flag | Meaning |
+|---|---|
+| `vouch diff` | `HEAD` vs the working tree |
+| `vouch diff REV` | `REV` (a branch, tag, commit, `HEAD~3`, ...) vs the working tree |
+| `vouch diff REV REV2` | two revisions |
+| `--key PATTERN` | only keys containing this substring or matching this glob (repeatable) |
+| `--cited` | only keys the paper cites |
+| `--all` | also each mean ± std's subfields (`.mean`, `.std`, ...) and tuple elements |
+| `--json` | the `vouch/1` envelope: `from`, `to`, `counts`, `unchanged`, `items`, `notes` |
+| `--md FILE` | a Markdown report, one table per group, e.g. for a PR description |
+
+```console
+$ vouch diff
+vouch diff: HEAD → working tree · 5 changed · 1 added · 0 removed · 12 unchanged
+
+  run train
+      ● toy.centroid.acc      80.2 ± 3.5% → 79.3 ± 3.1%   ↓ Δ -0.867 pts, -1.1% relative   worse   ! sample size changed (n=5 -> 3)
+      ● toy.majority.acc      49.9 ± 4.5% → 50.0 ± 3.5%   ↑ Δ +0.1 pts, +0.2% relative   better   ! sample size changed (n=5 -> 3)
+      ● toy.centroid.n_test   200 → 50   ↓ Δ -150, -75.0%   ! large move (75%)
+      ● train.param.seeds     5 → 3   ↓ Δ -2, -40.0%   ! large move (40%)
+        toy.majority.n_test   200 → 50   ↓ Δ -150, -75.0%   ! large move (75%)
+    +   toy.centroid.f1       0.81
+
+  ● cited in the paper; `vouch changes` lists the sentences to re-read
+```
+
+How to read a line:
+
+- `+` added, `-` removed, `~` a figure file that changed. `●` means the key is cited.
+- **Δ** is the absolute and relative change. For percentages it is in
+  percentage points, as the paper prints them. For a mean ± std it is the change in the mean.
+- **↑ / ↓** is the direction. **better / worse** appears when the key has
+  `better = "higher"` or `"lower"` (from `record(..., better=)` or `[metrics]`).
+  A claim that stops holding is `worse`.
+- **!** lists the same problem heuristics `vouch build` uses: sign flip, large
+  move (`changes.rel_threshold`), order of magnitude, sample size changed,
+  moved to another run, type changed.
+
+Groups come in this order: each run, derived values, claims, tables, removed
+keys, figures. Within a group, cited keys come first and `worse` before the rest.
+
+Revisions are read with git (`git ls-tree`, `git cat-file`), and nothing is
+checked out. Formats, units and `better` come from the *current* `vouch.toml`
+on both sides, so both sides are rendered and judged the same way. The
+working-tree side uses the last `vouch build`'s derived values. If they are out of
+date, a note says so. Exit codes: `0` (with or without differences), `2` when
+it could not compare (not a git repository, unknown revision).
+
+!!! note "`vouch diff` or `vouch changes`?"
+    `vouch changes` covers **cited** values against what someone last
+    **acknowledged**, and waits until the sentences are re-read. `vouch diff`
+    covers **every** recorded value against a **git revision** and answers "what
+    did this re-run do?". It never acknowledges anything.
 
 ## `vouch review`
 

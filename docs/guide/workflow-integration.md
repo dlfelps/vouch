@@ -9,6 +9,34 @@
 - After a merge conflict in a generated file, take either side and run `vouch build`.
 - Run records are one file per run id, so parallel experiment branches rarely conflict.
 
+## Live editing
+
+`vouch watch` keeps the generated LaTeX current while you work. It rebuilds
+whenever a run records values, or you save the paper, `vouch_values.py` or
+`vouch.toml`. After each rebuild it prints the values that moved. Add
+`--then` to recompile the PDF too:
+
+```console
+$ vouch watch --then "latexmk -pdf -cd paper/main.tex"
+```
+
+It never runs an experiment. Run those yourself, or on a cluster, and when
+their records land in `.vouch/runs/` the paper updates. See
+[`vouch watch`](../cli/setup.md#vouch-watch).
+
+## Before you commit, and in PRs
+
+`vouch diff` shows what the new run records change, against `HEAD`, before you
+commit them. On a branch, compare with the base branch and put the report in
+the PR description:
+
+```console
+$ vouch diff                       # HEAD vs the working tree
+$ vouch diff main --md diff.md     # everything this branch changed, as Markdown
+```
+
+See [`vouch diff`](../cli/check.md#vouch-diff).
+
 ## Pre-commit
 
 - `vouch hook install` writes `.git/hooks/pre-commit`, honoring `core.hooksPath`. It runs `vouch check --quiet`, plus `--strict` if `[hook] strict`.

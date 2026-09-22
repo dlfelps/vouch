@@ -108,16 +108,20 @@ class Index:
     @classmethod
     def load(cls, cfg: Config) -> "Index":
         idx = cls(cfg)
-        for path, rec in _safe_records(cfg.store, idx):
+        return idx.add_records(_safe_records(cfg.store, idx), rel=cfg.rel)
+
+    def add_records(self, records, *, rel=str) -> "Index":
+        """Add ``(path, record)`` pairs -- from the working tree, or a git revision."""
+        for path, rec in records:
             run = rec.get("run", Path(path).stem)
             if not verify_record(rec):
-                idx.problems.append(Problem(
+                self.problems.append(Problem(
                     "store-edited", f"run:{run}",
-                    f"{cfg.rel(path)} does not match its record_hash: it was edited by hand. "
+                    f"{rel(path)} does not match its record_hash: it was edited by hand. "
                     f"Re-run the experiment; never edit .vouch/ directly."))
-            idx.runs[run] = rec
-            idx._add_run(run, rec)
-        return idx
+            self.runs[run] = rec
+            self._add_run(run, rec)
+        return self
 
     def clone(self) -> "Index":
         """A copy that can take more entries without touching this one."""

@@ -1160,6 +1160,17 @@ $ vouch ack 'cifar.*'                 # a glob
 
 Acknowledging moves the baseline and appends an event to `.vouch/history.jsonl` recording the key, old → new, who, when and why. That file is a permanent changelog of the paper's numbers. `vouch ack` and `vouch accept` rebuild the generated files themselves, so highlights and tooltips update without a separate `vouch build`. Acknowledgment is a human action; agents surface changes and fix text, but don't acknowledge without approval (§13.5).
 
+### 9.5 Diffing against a revision: `vouch diff`
+
+§9.1–9.4 track *cited* values against the *acknowledged* baseline. `vouch diff` answers a different question: what did a re-run do to **every** recorded value, compared with a git revision?
+
+- **Sides.** `vouch diff` compares `HEAD` with the working tree, `vouch diff REV` compares `REV` with the working tree, and `vouch diff REV REV2` compares two revisions. A revision's records and `derived.json` are read with `git ls-tree` / `git cat-file --batch`, and nothing is checked out. The working tree uses the last build's `derived.json` (like `check`), with a note if it is out of date.
+- **What is compared.** Values, params, claims and table cells (Stat subfields and tuple elements with `--all`), plus figures by artifact hash. Equality uses the same float tolerance as §9.2.
+- **What is reported.** Each key is added, removed or changed. A changed key shows old → new as rendered, Δ (in percentage points for percentages, of the mean for a Stat), relative Δ, direction ↑/↓, and **better/worse** when the key has `better`. A claim that stops holding is `worse`. The §9.2 heuristics are listed too.
+- **Metadata.** `[metrics]` from the current `vouch.toml` applies to both sides.
+- **Nothing moves.** `vouch diff` never touches the baseline or history. Exit 0 with or without differences, 2 if it could not compare.
+- `vouch watch` (§15) uses the same comparison, between consecutive builds.
+
 ---
 
 ## 10. Provenance CSV
@@ -1263,6 +1274,7 @@ Every command accepts `--json`, which emits a stable, versioned envelope (§13.6
 |---|---|
 | `vouch init [--paper FILE] [--hook] [--agents]` | Writes `vouch.toml`, detects the main `.tex`, copies `vouch.sty`, adds `.gitignore` entries (`.vouch/cache/`), and prints the `\usepackage` line to add. `--hook` installs the pre-commit hook; `--agents` installs the LLM layer (§13.5). |
 | `vouch build [--no-notify]` | Evaluates `vouch_values.py`, renders the values file, tables (and the provenance CSV if `provenance_csv` is set) and catalog, refreshes annotations if enabled, auto-acknowledges new, `hidden` and `reformatted` changes, and prints the change block (§9.3). |
+| `vouch watch [--interval SEC] [--then CMD] [--no-notify] [--quiet]` | Builds, then rebuilds whenever a run record, `vouch.toml`, a values module or a paper `.tex` changes (stdlib polling; the build's own outputs never trigger it). Prints the values that moved since the previous build. `--then` runs a command (e.g. `latexmk`) after each build that wrote files. Never runs an experiment. |
 | `vouch check [--strict] [--quiet] [--json] [--paper FILE]` | The gate (§11). Read-only. Target: under 1 s. |
 | `vouch status` | Freshness per run, git-status style, with the exact re-run command and the units that changed. |
 | `vouch ls [PATTERN] [--cited\|--uncited] [--all] [--json]` | Keys with rendered value, description, run, freshness and citation count, numbers inside keys in numeric order. A mean ± std's subfields (`.mean`, `.std`, …) are listed only when cited or with `--all`; `--json` always has every key. |
@@ -1274,6 +1286,7 @@ Every command accepts `--json`, which emits a stable, versioned envelope (§13.6
 | `vouch suggest [FILE] [--apply]` | Match bare numbers to keys; `--apply` rewrites unique exact matches (§13.2). |
 | `vouch todo` | Pending `expect()` keys with their producer commands. |
 | `vouch changes [--json\|--md FILE]` | Pending changes to cited values, with the citing sentences. |
+| `vouch diff [REV [REV2]] [--key P]… [--cited] [--all] [--json\|--md FILE]` | Every recorded value, param, claim, table cell and figure added, removed or changed between a git revision (default `HEAD`) and the working tree, or two revisions (§9.5). |
 | `vouch review` | Interactive review of pending changes. |
 | `vouch ack KEY… \| --all \| --run RUN [--why TEXT]` | Acknowledge changes. A KEY may be a glob, or a table (every changed cell of it). |
 | `vouch accept RUN --why TEXT` | Record a reviewed staleness (§8.5). |
@@ -1636,6 +1649,7 @@ Every command's `--json` output uses the same envelope:
 | `compare(a, b, write=False)` | arithmetic plus derive/claim code |
 | `list_pending()` | `vouch todo` |
 | `list_changes()` | `vouch changes` |
+| `diff_values(rev="HEAD", to=None, cited=False)` | `vouch diff --json` |
 | `check(strict=True)` | the §13.6 envelope |
 | `trace(target)` | `vouch trace` |
 
@@ -1718,6 +1732,8 @@ imported 24 values into run imagenet_eval (prefix imagenet) · granularity: decl
   - `vouch hook install` writes `.git/hooks/pre-commit`, honoring `core.hooksPath`, with the same venv detection as asqc's `.githooks/pre-commit`. It runs `vouch check --quiet`, plus `--strict` if `[hook] strict`.
   - The vouch repo also ships a `.pre-commit-hooks.yaml` (`id: vouch-check`) for the pre-commit framework.
   - Following asqc's lesson, the hook must stay fast enough that nobody reaches for `--no-verify`.
+- **Live editing.** `vouch watch` builds, then rebuilds whenever a run record, `vouch.toml`, a values module or a paper `.tex` changes. It polls with the standard library, and the build's own outputs never trigger it. After each build it prints the values that moved (§9.5), and `--then CMD` can run LaTeX next. It never runs an experiment.
+- **Before committing, and in PRs.** `vouch diff` shows what the new run records change. `vouch diff main --md FILE` writes a report for the PR description.
 - **CI.** `pip install vouch-paper && vouch check --strict`. The README includes a GitHub Actions example.
 - **Overleaf.**
   - Everything LaTeX needs lives in the paper directory: `vouch.sty`, the values file and the tables. These sync through Overleaf's git bridge.

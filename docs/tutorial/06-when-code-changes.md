@@ -83,6 +83,23 @@ $ python experiment.py && vouch build && vouch check
 ✓ OK
 ```
 
+Two commands make this loop shorter:
+
+- **`vouch diff`** shows what a re-run did to *every* recorded value, cited
+  or not, compared with your last commit. It lists old → new, the size and
+  direction of each move, and whether it got better or worse (for keys with
+  `better = "higher"` or `"lower"`). `vouch changes` only lists the cited
+  values waiting for someone to re-read their sentences.
+- **`vouch watch`**, left running in a terminal, rebuilds whenever a run
+  records new values or you save the paper or `vouch_values.py`. You no longer
+  have to remember `vouch build`, and after each rebuild it prints the values
+  that moved.
+
+```console
+$ vouch diff                 # HEAD vs the values on disk now
+$ vouch watch                # rebuild on every new result; Ctrl-C to stop
+```
+
 Full reference: [Change notification](../guide/change-notification.md),
 [Freshness](../guide/freshness.md).
 

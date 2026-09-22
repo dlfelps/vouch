@@ -86,6 +86,16 @@ TOOLS: list[dict] = [
                     "them, with those sentences. Re-read each; report SUSPICIOUS ones to the user.",
      "inputSchema": {"type": "object", "properties": {}},
      "annotations": {"title": "List changes", "readOnlyHint": True}},
+    {"name": "diff_values",
+     "description": "What moved between a git revision and the working tree (or two "
+                    "revisions): every recorded value added, removed or changed, with the delta, "
+                    "its direction, and better/worse where the key says which way is better. Use "
+                    "it after a re-run to say what the re-run changed.",
+     "inputSchema": {"type": "object", "properties": {
+         "rev": {**_STR, "default": "HEAD"},
+         "to": {**_STR, "description": "a second revision; omit for the working tree"},
+         "cited": {"type": "boolean", "default": False, "description": "only cited keys"}}},
+     "annotations": {"title": "Diff values", "readOnlyHint": True}},
     {"name": "check",
      "description": "The gate: every cited key exists and is fresh, claims hold, generated files "
                     "are current, no typed numbers. Issues come in the order to fix them, each "
@@ -173,6 +183,14 @@ class Server:
     def tool_list_changes(self) -> dict:
         ctx = self._ctx()
         return {"changes": [c.to_json() for c in ctx.changes if c.pending]}
+
+    def tool_diff_values(self, rev: str = "HEAD", to: str | None = None,
+                         cited: bool = False) -> dict:
+        from .vdiff import DiffError, diff
+        try:
+            return diff(self._cfg(), rev, to, cited_only=bool(cited)).to_json()
+        except DiffError as exc:
+            raise ToolError(str(exc)) from None
 
     def tool_check(self, strict: bool = True) -> dict:
         from .check import run_check
