@@ -1342,7 +1342,7 @@ def make_parser() -> argparse.ArgumentParser:
     sp.add_argument("--no-notify", action="store_true", help="don't run the on_change hook")
     sp.add_argument("--quiet", action="store_true", help="one line per build, plus moved values")
 
-    sp = add("check", cmd_check, "the gate:cited values exist, are fresh, and are acknowledged")
+    sp = add("check", cmd_check, "the gate: cited values exist, are fresh, and are acknowledged")
     sp.add_argument("--strict", action="store_true", help="treat warnings as errors (CI, agents)")
     sp.add_argument("--quiet", action="store_true", help="print only problems")
     sp.add_argument("--verbose", action="store_true", help="also print informational notes")

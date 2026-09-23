@@ -101,7 +101,8 @@ $ vouch watch --quiet --then "latexmk -pdf -cd paper/main.tex"
 ```
 
 Values marked `●` are cited in the paper. The line format is the same as
-[`vouch diff`](check.md#vouch-diff).
+[`vouch diff`](check.md#vouch-diff). More in
+[Comparing runs and live rebuilds](../guide/diff-and-watch.md#vouch-watch).
 
 ## `vouch hook`
 

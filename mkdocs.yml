@@ -71,6 +71,7 @@ nav:
       - LaTeX interface: guide/latex.md
       - Freshness: guide/freshness.md
       - Change notification: guide/change-notification.md
+      - Comparing runs and live rebuilds: guide/diff-and-watch.md
       - Provenance CSV: guide/provenance-csv.md
       - Checks and lints: guide/checks-and-lints.md
       - Non-Python experiments: guide/non-python-experiments.md

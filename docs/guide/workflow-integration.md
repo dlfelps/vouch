@@ -22,7 +22,7 @@ $ vouch watch --then "latexmk -pdf -cd paper/main.tex"
 
 It never runs an experiment. Run those yourself, or on a cluster, and when
 their records land in `.vouch/runs/` the paper updates. See
-[`vouch watch`](../cli/setup.md#vouch-watch).
+[Comparing runs and live rebuilds](diff-and-watch.md#vouch-watch).
 
 ## Before you commit, and in PRs
 
@@ -35,7 +35,7 @@ $ vouch diff                       # HEAD vs the working tree
 $ vouch diff main --md diff.md     # everything this branch changed, as Markdown
 ```
 
-See [`vouch diff`](../cli/check.md#vouch-diff).
+See [Comparing runs and live rebuilds](diff-and-watch.md#vouch-diff).
 
 ## Pre-commit
 

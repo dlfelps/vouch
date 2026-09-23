@@ -45,7 +45,7 @@ subfields: .mean 90.6% · .std 0.4% · .n 5 · .ci95 90.0-91.1% · .min 90.2% ·
 context   "averages top-1 accuracy over 5 seeds, held-out test split"
 ```
 
-![vouch explore browsing recorded values by script and function](assets/images/explore-ui-overview.png)
+![vouch explore browsing recorded values by script and function](../assets/images/2_explore.png)
 *`vouch explore --open`: every recorded value, grouped by script then function.*
 
 ## 3. Cite

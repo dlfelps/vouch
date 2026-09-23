@@ -96,6 +96,8 @@ working-tree side uses the last `vouch build`'s derived values. If they are out 
 date, a note says so. Exit codes: `0` (with or without differences), `2` when
 it could not compare (not a git repository, unknown revision).
 
+More on reading the output and choosing revisions: [Comparing runs and live rebuilds](../guide/diff-and-watch.md).
+
 !!! note "`vouch diff` or `vouch changes`?"
     `vouch changes` covers **cited** values against what someone last
     **acknowledged**, and waits until the sentences are re-read. `vouch diff`

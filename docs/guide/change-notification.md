@@ -56,7 +56,7 @@ reversed.
 3. **The PDF** highlights pending values, and their tooltips say what they were.
 4. **`vouch changes [--json | --md FILE]`** gives the full pending list. `--md` writes a shareable review report.
 5. **The `on_change` hook.** If `changes.on_change` is set, `vouch build` runs that command once per newly detected batch and sends the changes as JSON on stdin.
-6. **`vouch watch`** rebuilds on its own when new values are recorded, so the `vouch build` output above (and the `on_change` hook) arrives without you running anything. See [`vouch watch`](../cli/setup.md#vouch-watch).
+6. **`vouch watch`** rebuilds on its own when new values are recorded, so the `vouch build` output above (and the `on_change` hook) arrives without you running anything. See [Comparing runs and live rebuilds](diff-and-watch.md#vouch-watch).
 
 ## Review and acknowledgment
 
@@ -76,7 +76,7 @@ paper's numbers. `vouch ack` and `vouch accept` rebuild the generated files
 themselves, so highlights and tooltips update without a separate `vouch build`.
 
 Uncited values, and questions like "what did this re-run change compared with
-the last commit?", are the job of [`vouch diff`](../cli/check.md#vouch-diff).
+the last commit?", are the job of [`vouch diff`](diff-and-watch.md#vouch-diff).
 It compares every recorded value with a git revision, shows each move's size
 and direction (better or worse), and never touches the baseline.
 

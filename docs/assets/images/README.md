@@ -28,6 +28,6 @@ and no Markdown needs to change.
 Each image is referenced with standard Markdown, e.g.:
 
 ```markdown
-![vouch check failing after a code change](terminal-vouch-check-fail.png)
+![vouch check failing after a code change, with stale runs and false claims](../assets/images/6_check_fail.png)
 *`vouch check` after changing `K = 15` to `K = 1`.*
 ```
