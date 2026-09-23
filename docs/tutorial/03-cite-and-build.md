@@ -34,7 +34,7 @@ $ cd paper && latexmk -pdf main.tex
 `vouch build` writes `paper/vouch-values.tex`, which `vouch.sty` reads. Commit it
 too, so co-authors and Overleaf can compile the paper without running anything.
 
-![A number in the compiled PDF as a clickable link to its provenance](../assets/images/pdf-provenance-link.png)
+![A number in the compiled PDF as a clickable link to its provenance](../assets/images/3_pdf.png)
 *Every `\vouch{...}`-produced number in the draft PDF is a link to the "Value
 provenance" appendix (next step).*
 

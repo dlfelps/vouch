@@ -13,7 +13,7 @@ vouch check: paper/main.tex · 22 citations · 1/1 cited runs fresh
 ✓ OK
 ```
 
-![vouch check passing in the terminal](../assets/images/terminal-vouch-check-pass.png)
+![vouch check passing in the terminal](../assets/images/5_check.png)
 *`vouch check`, green: every cited key exists, every cited run is fresh, and
 every claim holds.*
 
@@ -35,7 +35,7 @@ which shows:
 - each seed's result, and how long each call took
 - the command and the commit
 
-![The Value provenance appendix entry for one cited number](../assets/images/pdf-provenance-appendix.png)
+![The Value provenance appendix entry for one cited number](../assets/images/5_appendix.png)
 *One appendix entry: the call that produced the value, each seed's result, the
 command, and the commit.*
 

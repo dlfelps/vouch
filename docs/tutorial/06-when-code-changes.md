@@ -63,7 +63,7 @@ $ vouch check
 FAILED: 4 error(s), 9 warning(s)
 ```
 
-![vouch check failing after a code change, with stale runs and false claims](../assets/images/terminal-vouch-check-fail.png)
+![vouch check failing after a code change, with stale runs and false claims](../assets/images/6_check_fail.png)
 *The moment vouch exists for: `K = 15` becomes `K = 1`, two claims flip false, and
 `vouch check` fails before the wrong PDF ever ships.*
 

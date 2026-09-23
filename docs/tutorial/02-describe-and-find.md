@@ -25,7 +25,7 @@ $ vouch explore --open
 This opens a local page listing every value by script, then function. One click
 copies the LaTeX that cites it.
 
-![vouch explore browsing recorded values by script and function](../assets/images/explore-ui-overview.png)
+![vouch explore browsing recorded values by script and function](../assets/images/2_explore.png)
 *`vouch explore --open`: the left side lists scripts and functions; the right side
 lists that function's keys, each with a button that copies its citation.*
 
