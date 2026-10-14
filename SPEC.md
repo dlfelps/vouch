@@ -1059,7 +1059,7 @@ An earlier version imported and patched `multiprocessing` at start-up to detect 
 | `tampered` | an artifact on disk differs from its recorded hash | **error** |
 | `incomplete` | the record's `status` is not `complete` | **error** |
 | `accepted` | stale, but the exact current state was reviewed (§8.5) | info |
-| `env-drift` | a recorded third-party package version differs from the current environment | warning |
+| `env-drift` | a recorded third-party package version, or the recorded Python minor version, differs from the current environment. A run that records no interpreter (`vouch run` of a non-Python command, `vouch import`) is not compared: unknown is not different | warning |
 | `absent` | a recorded input or artifact is not on disk | warning |
 
 ### 8.5 Accepting a reviewed staleness

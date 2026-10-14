@@ -73,7 +73,7 @@ Python child processes, which aren't observed.
 | `tampered` | an artifact on disk differs from its recorded hash | **error** |
 | `incomplete` | the record's `status` is not `complete` | **error** |
 | `accepted` | stale, but the exact current state was reviewed | info |
-| `env-drift` | a recorded third-party package version differs from the current environment | warning |
+| `env-drift` | a recorded third-party package version, or the recorded Python minor version, differs from the current environment. A run that records no interpreter (`vouch run` of a non-Python command, `vouch import`) is not compared | warning |
 | `absent` | a recorded input or artifact is not on disk | warning |
 
 ## Accepting a reviewed staleness

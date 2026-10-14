@@ -182,7 +182,11 @@ def _env_drift(rec: dict) -> list[Reason]:
     out = []
     env = rec.get("env") or {}
     import platform
-    rec_py = str(env.get("python", ""))
+    # A run vouch did not start in Python -- `vouch run` of any other command, `vouch
+    # import` -- records python as None: the interpreter is unknown, not different.
+    # str(None) used to be compared with the current version, so every such run was
+    # reported as drifted, on every check.
+    rec_py = str(env.get("python") or "")
     cur_py = platform.python_version()
     if rec_py and rec_py.split(".")[:2] != cur_py.split(".")[:2]:
         out.append(Reason("env-drift", "python", f"recorded with Python {rec_py}, now {cur_py}"))

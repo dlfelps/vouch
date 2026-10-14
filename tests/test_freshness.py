@@ -140,3 +140,22 @@ def test_env_drift_and_incomplete(project):
     rec["status"] = "partial"
     write_record(cfg.store, rec)
     assert states(project)["exp"].state == "incomplete"
+
+
+def test_an_unknown_interpreter_is_not_drift(project):
+    """`vouch run` of a non-Python command and `vouch import` record python as None.
+
+    The interpreter is unknown, not different, and such a run must not be reported as
+    drifted against whatever Python runs the check (it was, as "recorded with Python
+    None, now 3.13.5", on every run of that kind)."""
+    make(project)
+    cfg = Config.load(project.root)
+    path = project.root / ".vouch/runs/exp.json"
+    rec = json.loads(path.read_text(encoding="utf-8"))
+    rec["env"] = {"python": None, "platform": rec["env"].get("platform"), "packages": {}}
+    write_record(cfg.store, rec)
+    st = assess(cfg, load_runs(cfg.store))["exp"]
+    assert st.state == "fresh" and not st.of("env-drift")
+    rec["env"]["python"] = "2.7.18"                  # a known, different interpreter still is
+    write_record(cfg.store, rec)
+    assert assess(cfg, load_runs(cfg.store))["exp"].of("env-drift")
