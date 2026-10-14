@@ -141,6 +141,89 @@ def test_import_registers_a_file_with_declared_provenance(proj, capsys):
     assert states(proj)["ev"].state == "stale"
 
 
+def test_a_relative_executable_path_is_started(proj, tmp_path):
+    """`vouch run ID -- .venv/Scripts/python.exe x.py` failed on Windows with WinError 2:
+    process creation does not resolve a relative path with forward slashes. The path is
+    now resolved against the working directory, and recorded as it was typed."""
+    import os
+    import shutil
+    from pathlib import Path
+    venv = proj.root / "tools" / "bin"
+    venv.mkdir(parents=True)
+    exe = venv / Path(sys.executable).name
+    shutil.copy2(sys.executable, exe)
+    for dll in Path(sys.executable).parent.glob("*.dll"):    # a Windows venv's python needs them
+        shutil.copy2(dll, venv / dll.name)
+    cfg = Path(sys.executable).parent / "pyvenv.cfg"
+    for c in (cfg, cfg.parent.parent / "pyvenv.cfg"):
+        if c.is_file():
+            shutil.copy2(c, venv.parent / "pyvenv.cfg")
+    typed = Path(os.path.relpath(exe, proj.root)).as_posix()
+    assert "/" in typed and not Path(typed).is_absolute()
+    code = "import json, os; json.dump({'a': 1}, open(os.environ['VOUCH_VALUES'], 'w'))"
+    assert cli.main(["run", "rel", "--", typed, "-c", code]) == 0
+    assert proj.record("rel")["command"][-3] == typed
+
+
+@pytest.mark.parametrize("cmd, at", [
+    (["python", "train.py"], 0),
+    (["python", "-c", "pass"], None),
+    (["uv", "run", "python", "train.py"], 2),
+    (["uv", "run", "--no-sync", "python", "exp/train.py", "--force"], 3),
+    (["uv", "run", "--python", "python3", "python", "x.py"], 4),
+    (["uv.exe", "run", "--group", "dev", "python3", "x.py"], 4),
+    (["uv", "run", "pytest", "tests/test_x.py"], None),
+    (["uv", "sync"], None),
+    (["make", "all"], None),
+])
+def test_where_the_interpreter_is(cmd, at):
+    from vouch.runner import _python_at
+    assert _python_at(cmd) == at
+
+
+def test_uv_run_python_is_tracked_by_function(proj):
+    """`uv run ... python script.py` runs a Python script, so it gets what `python
+    script.py` gets: function-level tracking and the real interpreter in the record,
+    instead of declared dependencies and an unknown Python."""
+    import platform
+    import shutil
+    if shutil.which("uv") is None:
+        pytest.skip("uv is not installed")
+    proj.write("train.py", "def score():\n    return 0.5\n\nscore()\n")
+    assert cli.main(["run", "uvpy", "--", "uv", "run", "--no-project", "--python",
+                     sys.executable, "python", "train.py"]) == 0
+    rec = proj.record("uvpy")
+    assert rec["entry"] == "train.py" and rec["code"]["granularity"] == "function"
+    assert "train.py::score" in rec["code"]["units"]
+    assert rec["env"]["python"] == platform.python_version()
+    assert rec["command"][-2:] == ["python", "train.py"]
+
+
+def test_a_data_artifact_can_be_traced(proj, capsys):
+    """`vouch trace FILE` answered only for figures, scripts and keys, so the provenance
+    of a results table, a model or a built wheel -- an artifact of `vouch run --out`
+    -- could not be looked up at all ("not a key, a tex file:line, a figure or a file
+    any run used")."""
+    assert cli.main(["run", "jl", "--dep", "src", "--", sys.executable, "-c",
+                     "exec(open('gen.py').read())"]) == 0
+    code = "open('results/sum.txt', 'w').write(open('results/plot.txt').read())"
+    assert cli.main(["run", "reader", "--input", "results/plot.txt", "--out", "results/sum.txt",
+                     "--", sys.executable, "-c", code]) == 0
+    capsys.readouterr()
+    assert cli.main(["trace", "results/plot.txt"]) == 0
+    out = capsys.readouterr().out
+    assert "written   by run jl (fresh)" in out and "as the run wrote it" in out
+    assert "read by   run reader (fresh)" in out
+    assert cli.main(["trace", "results/plot.txt", "--json"]) == 0
+    got = json.loads(capsys.readouterr().out)
+    assert got["type"] == "data" and got["written_by"][0]["run"] == "jl"
+    (proj.root / "results/plot.txt").write_text("edited by hand", encoding="utf-8")
+    assert cli.main(["trace", "results/plot.txt"]) == 0
+    assert "differs from what the run wrote" in capsys.readouterr().out
+    assert cli.main(["trace", "results/nothing.txt"]) == 1
+    assert "a file a run wrote, read" in capsys.readouterr().err
+
+
 def test_import_without_a_producer_is_a_warning(proj):
     proj.write("vouch.toml", '[[paper]]\nmain = "paper/main.tex"\n')
     proj.write("results/eval.json", json.dumps({"acc": 0.93}))

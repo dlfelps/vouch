@@ -101,14 +101,29 @@ Numbers inside keys sort in numeric order.
 
 ## `vouch trace`
 
-The full provenance chain for a key, a figure, a script, or a `file:line`.
+The full provenance chain for a key, a figure, a script, any other file a run
+wrote or read, or a `file:line`.
 
 ```console
 $ vouch trace TARGET [--code] [--json] [--root DIR]
 ```
 
-`TARGET` is a key, a figure path, a script path, or `file:line` in a paper's
-`.tex`. `--code` lists every code unit the target depends on.
+`TARGET` is a key, a figure path, a script path, a data path, or `file:line` in a
+paper's `.tex`. `--code` lists every code unit the target depends on.
+
+A data path is any file a run wrote (`vouch.artifact`, `vouch run --out`), registered
+(`vouch import`) or read (`vouch.input`, `--input`): a results table, a model, a built
+package. The trace names the run that wrote it, whether the file on disk is still what
+that run wrote, and the runs and derived values that read it.
+
+```console
+$ vouch trace export/dist/mylib-1.1.0-py3-none-any.whl
+export/dist/mylib-1.1.0-py3-none-any.whl   file
+  written   by run export (fresh)
+  command   vouch run export --dep export/build.py --out export/dist/... -- python export/build.py
+  when      2026-10-14 17:52 UTC · git d9c8f14
+  file      as the run wrote it (sha256 3f0a9c1b2e47)
+```
 
 ```console
 $ vouch trace paper/figures/learning_curve.pdf

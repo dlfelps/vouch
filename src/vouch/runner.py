@@ -33,6 +33,7 @@ from .values import Stat
 
 _PKG_PARENT = str(Path(__file__).resolve().parent.parent)
 _PYTHONS = {"python", "python3", "python.exe", "python3.exe", "py", "py.exe", "pythonw.exe"}
+_UVS = {"uv", "uv.exe"}
 
 
 class RunError(RuntimeError):
@@ -150,10 +151,53 @@ def apply_values(run, data: Any, site: str, *, prefix: str | None = None,
 # vouch run
 # ---------------------------------------------------------------------------
 
+def _is_python(token: str) -> bool:
+    return (Path(token).name.lower() in _PYTHONS
+            or os.path.abspath(token) == os.path.abspath(sys.executable))
+
+
+def _python_at(cmd: list[str]) -> int | None:
+    """Where the interpreter sits in ``cmd``, if ``cmd`` runs a Python script.
+
+    ``python train.py`` gives 0. ``uv run [options] python train.py`` gives the index
+    of ``python``: uv's own options are skipped, and the first interpreter followed by
+    a ``.py`` file is the one that runs the script, so ``--python python3.12`` is not
+    mistaken for it. Anything else gives None, and the run is recorded by its declared
+    dependencies alone.
+    """
+    if len(cmd) > 1 and _is_python(cmd[0]) and cmd[1].endswith(".py"):
+        return 0
+    if len(cmd) > 3 and Path(cmd[0]).name.lower() in _UVS and cmd[1] == "run":
+        for i in range(2, len(cmd) - 1):
+            if _is_python(cmd[i]) and cmd[i + 1].endswith(".py"):
+                return i
+    return None
+
+
 def _python_command(cmd: list[str]) -> bool:
-    exe = Path(cmd[0]).name.lower()
-    return (exe in _PYTHONS or os.path.abspath(cmd[0]) == os.path.abspath(sys.executable)) \
-        and len(cmd) > 1 and cmd[1].endswith(".py")
+    return _python_at(cmd) is not None
+
+
+def _executable(first: str, root: Path) -> str:
+    """``cmd[0]`` as the operating system can start it.
+
+    A relative path with a directory in it, such as ``.venv/Scripts/python.exe``, is
+    resolved against the working directory and then the project root. Windows' process
+    creation does not resolve it on its own, and the run used to fail with "could not
+    start .venv/Scripts/python.exe: [WinError 2]". The recorded command keeps the path
+    as it was typed, so that the re-run command stays portable.
+    """
+    p = Path(first)
+    if p.is_absolute() or not (os.sep in first or (os.altsep and os.altsep in first)):
+        return first
+    for base in (Path.cwd(), root):
+        cand = base / p
+        names = [cand, cand.with_name(cand.name + ".exe")] if os.name == "nt" and \
+            not cand.suffix else [cand]
+        for c in names:
+            if c.is_file():
+                return str(c)
+    return first
 
 
 def run_command(cfg: Config, run_id: str, cmd: list[str], **kw) -> int:
@@ -178,8 +222,12 @@ def _run_command(cfg: Config, run_id: str, cmd: list[str], *, deps: list[str] = 
     run = api.Run(run_id)
     for p in inputs:
         run.input(p)
-    is_py = _python_command(cmd)
-    real = [cmd[0], "-m", "vouch.exec", *cmd[1:]] if is_py else list(cmd)
+    at = _python_at(cmd)
+    is_py = at is not None
+    real = list(cmd)
+    if is_py:          # run the script under vouch.exec, tracked by function
+        real = [*cmd[:at + 1], "-m", "vouch.exec", *cmd[at + 1:]]
+    real[0] = _executable(real[0], cfg.root)
     target = record_path(cfg.store, run.id)
     before = target.read_bytes() if target.exists() else None
 
@@ -193,7 +241,9 @@ def _run_command(cfg: Config, run_id: str, cmd: list[str], *, deps: list[str] = 
     try:
         rc = subprocess.run(real, env=env).returncode
     except OSError as exc:
-        raise RunError(f"could not start {cmd[0]}: {exc}") from None
+        raise RunError(f"could not start {cmd[0]}: {exc} (a program is looked up on PATH; "
+                       f"a relative path, in the working directory and then the project "
+                       f"root)") from None
     try:
         if rc != 0:
             after = target.read_bytes() if target.exists() else None
@@ -228,7 +278,7 @@ def _run_command(cfg: Config, run_id: str, cmd: list[str], *, deps: list[str] = 
         if is_py and after is not None and after != before:
             child = read_record(target)
         record = run._build_record(code=code, command=command,
-                                   entry=cfg.rel(cmd[1]) if is_py else cmd[0], env=_env())
+                                   entry=cfg.rel(cmd[at + 1]) if is_py else cmd[0], env=_env())
         record["inputs"] = dict(sorted({**record["inputs"], **dep_inputs}.items()))
         if child is not None:
             record = _merge(child, record)

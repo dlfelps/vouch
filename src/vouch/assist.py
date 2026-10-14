@@ -550,6 +550,52 @@ def figure_info(ctx, rel: str) -> dict | None:
                          if c.kind == "figure" and c.key == rel]}
 
 
+def file_info(ctx, rel: str) -> dict | None:
+    """Where a data file or other artifact came from, and what reads it.
+
+    The run that wrote it (one of its artifacts) and whether the file on disk is still
+    what that run wrote; the run that registered it, if it was imported; the runs that
+    read it as an input; and the derived values whose definitions read it. None if no
+    run and no definition mentions ``rel``. Figures have their own, richer view
+    (:func:`figure_info`); this is everything else a run writes, such as a results
+    table, a model or a wheel.
+    """
+    idx = ctx.idx
+    runs = sorted(idx.runs.items())
+    wrote = [r for r, rec in runs if rel in (rec.get("artifacts") or {})]
+    imported = [r for r, rec in runs if (rec.get("imported") or {}).get("file") == rel]
+    read = [r for r, rec in runs if rel in (rec.get("inputs") or {}) and r not in imported]
+    values = sorted(dk for dk, d in ((idx.derived_doc or {}).get("definitions") or {}).items()
+                    if rel in (d.get("inputs") or {}))
+    if not (wrote or imported or read or values):
+        return None
+
+    def run_info(r: str) -> dict:
+        rec = idx.runs.get(r) or {}
+        st = ctx.states.get(r)
+        kinds = {x.kind for x in (st.reasons if st else []) if x.subject == rel}
+        art = (rec.get("artifacts") or {}).get(rel)
+        return {"run": r, "state": st.state if st else "",
+                "hash": art.get("hash") if isinstance(art, dict) else art,
+                "file": "differs from what the run wrote" if "tampered" in kinds else
+                        "missing" if "absent" in kinds else "as the run wrote it",
+                "run_command": " ".join(rec.get("command") or []),
+                "started": rec.get("started"), "git": (rec.get("git") or {}).get("commit"),
+                "rerun": st.command if st and st.is_error else None}
+
+    return {"file": rel,
+            "written_by": [run_info(r) for r in wrote],
+            "imported_by": [{"run": r, "state": ctx.states[r].state if r in ctx.states else ""}
+                            for r in imported],
+            "read_by_runs": [{"run": r, "state": ctx.states[r].state if r in ctx.states else ""}
+                             for r in read],
+            "read_by_values": [{"key": k, "cited_at": cited_at(ctx, k)} for k in values]}
+
+
+TRACE_TARGETS = ("a key, a tex file:line, a figure, or a file a run wrote, read, "
+                 "imported or ran")
+
+
 def trace(ctx, target: str) -> dict:
     """A key; a tex ``file:line`` (what it cites); a figure (the run that saved it); or a
     script/file (the runs that used it)."""
@@ -581,5 +627,8 @@ def trace(ctx, target: str) -> dict:
              "values": [{"key": k, "cited_at": cited_at(ctx, k)} for k in
                         sorted(k for k, e in idx.entries.items() if e.run == r and e.kind == "value")]}
             for r in runs]}
-    return {"target": target, "error": f"{target!r} is not a key, a tex file:line, a figure or a "
-                                       f"file any run used", "suggestions": idx.suggest(target)}
+    data = file_info(ctx, rel)
+    if data is not None:
+        return {"target": target, "type": "data", **data}
+    return {"target": target, "error": f"{target!r} is not {TRACE_TARGETS}",
+            "suggestions": idx.suggest(target)}

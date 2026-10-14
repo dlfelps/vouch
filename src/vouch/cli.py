@@ -563,8 +563,30 @@ def cmd_trace(args) -> int:
                 where = [f"{c.file}:{c.line}" for pl in ctx.plans for c in pl.doc.citations if c.key == k]
                 C.out(f"  {k}" + (f"   cited at {', '.join(where)}" if where else "   (not cited)"))
         return EXIT_OK
+    from .assist import TRACE_TARGETS, file_info
+    data = file_info(ctx, rel)
+    if data is not None:
+        C.out(f"{rel}   file")
+        for w in data["written_by"]:
+            C.out(f"  written   by run {w['run']} ({w['state']})")
+            C.out(f"  command   {w['run_command'] or '-'}")
+            C.out(f"  when      {str(w['started'] or '')[:16].replace('T', ' ')} UTC"
+                  + (f" · git {w['git'][:7]}" if w.get("git") else ""))
+            C.out(f"  file      {w['file']}"
+                  + (f" (sha256 {str(w['hash']).split(':')[-1][:12]})" if w.get("hash") else ""))
+            if w["rerun"]:
+                C.out(f"  re-run    {w['rerun']}")
+        for i in data["imported_by"]:
+            C.out(f"  imported  by run {i['run']} ({i['state']})")
+        if data["read_by_runs"]:
+            C.out("  read by   " + ", ".join(f"run {r['run']} ({r['state']})"
+                                            for r in data["read_by_runs"]))
+        for v in data["read_by_values"]:
+            C.out(f"  feeds     {v['key']}"
+                  + (f"   cited at {', '.join(v['cited_at'])}" if v["cited_at"] else "   (not cited)"))
+        return EXIT_OK
     sugg = idx.suggest(target)
-    C.err(f"vouch trace: {target!r} is not a key, a tex file:line, a figure or a file any run used"
+    C.err(f"vouch trace: {target!r} is not {TRACE_TARGETS}"
           + (f" (did you mean {', '.join(sugg)}?)" if sugg else ""))
     return EXIT_FAIL
 
