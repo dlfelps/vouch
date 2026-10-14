@@ -300,6 +300,53 @@ def test_inputs_are_loaded_and_must_come_from_a_run(project):
         issues(project)["out-of-sync"][0].message
 
 
+def test_a_claim_renders_the_same_on_the_build_that_evaluates_it(proj):
+    """A claim lists the values it read. They were kept in the order the function read
+    them, and derived.json stores keys sorted, so the build that evaluated the claim
+    wrote a values file that every later build and check disagreed with: the check
+    reported out-of-sync right after a successful `vouch build`."""
+    proj.write("vouch_values.py", '''
+        import vouch
+
+        @vouch.claim("cifar.order", desc="read out of alphabetical order")
+        def order(v):
+            return v["cifar.vit.acc.mean"] < v["cifar.resnet.acc.mean"]
+    ''')
+    paper(proj, "\\vouchclaim{cifar.order}{ResNet is ahead}.")
+    build(Config.load(proj.root))
+    assert "out-of-sync" not in issues(proj)
+    first = values_file(proj)
+    build(Config.load(proj.root))
+    assert values_file(proj) == first
+
+
+def test_a_derivation_may_read_an_imported_results_file(project):
+    """`vouch import` vouches for the file it registers: it hashes the file and the
+    declared producers. A derivation reading that file is therefore traced to the
+    imported run and goes stale with it, instead of failing as untracked-input."""
+    from vouch.check import run_check
+    project.write("vouch.toml", '[[paper]]\nmain = "paper/main.tex"\n')
+    project.write("produce.py", "def rows():\n    return 3\n")
+    project.write("results/counts.csv", "verdict,n\nglobal,228\nfactor,432\n")
+    assert cli.main(["import", "--root", str(project.root),
+                     str(project.root / "results/counts.csv"), "--run", "counts",
+                     "--row-key", "verdict", "--producer", str(project.root / "produce.py")]) == 0
+    project.write("vouch_values.py", '''
+        import vouch
+
+        @vouch.derive("total", inputs=["results/counts.csv"], fmt=",d", desc="all of them")
+        def total(v, rows):
+            return sum(int(r["n"]) for r in rows)
+    ''')
+    paper(project, "\\vouch{total}")
+    build(Config.load(project.root))
+    assert derived(project)["definitions"]["total"]["runs"] == ["counts"]
+    assert "untracked-input" not in issues(project)
+    edit(project.root / "produce.py", "return 3", "return 4")      # the declared producer
+    rep = run_check(Config.load(project.root), check_env=False)
+    assert any(i.check in ("stale", "upstream-stale") for i in rep.issues)
+
+
 def test_definition_errors_are_reported_where_they_happen(proj):
     proj.write("vouch_values.py", '''
         import vouch

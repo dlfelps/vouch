@@ -78,9 +78,11 @@ value computed from other values belongs in a `@vouch.derive`.
 | `.jsonl` | a list of parsed records |
 | anything else | `pathlib.Path` |
 
-Each input must be an artifact of some run, or be listed under `[inputs] external`
-in `vouch.toml`. A derivation that reads a file nobody produced is a provenance
-hole (`untracked-input` error).
+Each input must be an artifact of some run, a results file registered by
+[`vouch import`](non-python-experiments.md) (the imported run then stands behind
+the derivation, which goes stale with the file and its declared producers), or be
+listed under `[inputs] external` in `vouch.toml`. A derivation that reads a file
+nobody produced is a provenance hole (`untracked-input` error).
 
 ## Claim helpers
 

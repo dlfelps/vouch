@@ -701,7 +701,7 @@ The values modules are inert outside `vouch build`: importing one from a noteboo
 | `.jsonl` | a list of parsed records |
 | anything else | `pathlib.Path` |
 
-Each input must be an **artifact of some run**, or be listed under `[inputs] external`. A derivation that reads a file nobody produced is a provenance hole (`untracked-input` error).
+Each input must be an **artifact of some run**, a **results file registered by `vouch import`** (§14.1; the imported run is then the derivation's run, so the derivation goes stale with the file and its declared producers), or be listed under `[inputs] external`. A derivation that reads a file nobody produced is a provenance hole (`untracked-input` error).
 
 ### 5.3 Claim helpers
 
@@ -1222,7 +1222,7 @@ There is exactly one CSV per paper, covering every cited key. This was decided i
 | `out-of-sync` | error | generated files or `derived.json` differ from what `build` would write. Run freshness is excluded from the comparison: it depends on the working tree, not on what was recorded, so it lives on separate `\vouch@state` lines (read by tooltips) and in the CSV's freshness column. A code edit is reported once, as `stale`, never also as `out-of-sync`. | `vouch build` |
 | `stale` / `upstream-stale` | error (info when the paper cites nothing from the run) | §8.4 | re-run (exact command shown) or `vouch accept` |
 | `tampered` / `incomplete` | error | §8.4 | re-run |
-| `untracked-input` | error | a derivation reads a file no run produced and not listed as `external` | produce it in a run, or declare it `external` |
+| `untracked-input` | error | a derivation reads a file no run produced or imported, and not listed as `external` | produce it in a run, `vouch import` it, or declare it `external` |
 | `alias-target` | warning | an alias names a key under which nothing is recorded | fix the alias |
 | `derive-cycle` | error | derived values depend on each other | break the cycle |
 | `false-claim` | error | a claim no longer holds; the message shows the values it read | re-examine the result and the prose |

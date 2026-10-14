@@ -341,6 +341,14 @@ class _Evaluator:
         self.stack: list[str] = []
         self.producers = {path: run for run, rec in sorted(idx.runs.items())
                           for path in (rec.get("artifacts") or {})}
+        # A results file registered by `vouch import` is vouched for by that run: it
+        # hashes the file and its declared producers, so a derivation reading it has a
+        # provenance and goes stale with it. It used to be reported as untracked-input,
+        # which left [inputs] external, and no staleness at all, as the only way out.
+        for run, rec in sorted(idx.runs.items()):
+            imported = (rec.get("imported") or {}).get("file")
+            if imported and imported not in self.producers:
+                self.producers[imported] = run
         self.external = [str(p).rstrip("/") for p in cfg.get("inputs", "external", []) or []]
 
     def _issue(self, check: str, message: str, d: Definition, severity: str = "error") -> None:
@@ -562,7 +570,11 @@ class _Evaluator:
         if ver.margin is not None and ver.margin == ver.margin and abs(ver.margin) != float("inf"):
             c["margin"] = round(ver.margin, 6)
         vals = {}
-        for k in list(rec["deps"])[:8]:
+        # Sorted, not in the order the function read them: derived.json is written with
+        # sorted keys, so a claim encoded in access order rendered differently on the
+        # build that evaluated it than on every later build and check, which then reported
+        # the values file out-of-sync until a second `vouch build`.
+        for k in sorted(rec["deps"])[:8]:
             e = self.idx.get(self.resolve(k))
             if e is not None and e.kind != "table" and not k.startswith("keys:"):
                 try:

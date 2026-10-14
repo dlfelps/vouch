@@ -18,7 +18,7 @@ code.
 | `out-of-sync` | error | generated files or `derived.json` differ from what `build` would write | `vouch build` |
 | `stale` / `upstream-stale` | error (info when the paper cites nothing from the run) | see [Freshness](freshness.md) | re-run (exact command shown) or `vouch accept` |
 | `tampered` / `incomplete` | error | see [Freshness](freshness.md) | re-run |
-| `untracked-input` | error | a derivation reads a file no run produced and not listed as `external` | produce it in a run, or declare it `external` |
+| `untracked-input` | error | a derivation reads a file no run produced or imported, and not listed as `external` | produce it in a run, `vouch import` it, or declare it `external` |
 | `alias-target` | warning | an alias names a key under which nothing is recorded | fix the alias |
 | `derive-cycle` | error | derived values depend on each other | break the cycle |
 | `false-claim` | error | a claim no longer holds; the message shows the values it read | re-examine the result and the prose |
