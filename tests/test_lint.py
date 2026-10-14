@@ -70,6 +70,19 @@ $x_{10} + \sum_{i=1}^{10} y_i$ \vouch{cifar.resnet.acc} \vouch[.3f]{lr} % 99 in 
     assert literals(project, body, pre) == []
 
 
+def test_a_file_read_in_the_preamble_is_not_prose(project):
+    """A file \\input before \\begin{document} holds definitions. The lint used to skip
+    the main file's preamble and lint every input file whole, so a generated table of
+    \\newlabel lines failed the check with its section numbers as "no-source" numbers.
+    A file read from the body, or from both, is still linted."""
+    project.write("paper/labels.tex", "\\newlabel{sec:a}{{4.2}{31}{Results}{}{}}\n")
+    project.write("paper/body.tex", "It took 38 hours.\n")
+    project.write("paper/both.tex", "Ran 17 seeds.\n")
+    pre = "\\input{labels}\n\\input{both}\n"
+    body = "\\input{body}\n\\input{both}\n"
+    assert sorted(literals(project, body, pre)) == ["17", "38"]
+
+
 def test_parsing_keeps_the_precision_a_literal_claims():
     assert parse_numbers(r"93.2\%") == [(93.2, 1)]
     assert parse_numbers("18{,}535") == [(18535.0, 0)]

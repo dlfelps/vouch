@@ -211,6 +211,8 @@ def _places(literal: str) -> int:
 def find_literals(doc: Document, *, allow_years: bool = True) -> list[Literal]:
     out: list[Literal] = []
     for path, masked in doc.masked.items():
+        if path in doc.preamble:      # \input in the preamble: definitions, not prose
+            continue
         src = mask(masked, doc.short)
         start = doc.body_start.get(path, 0) if path == doc.main else 0
         maths = math_spans(src)

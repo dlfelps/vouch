@@ -1242,7 +1242,7 @@ There is exactly one CSV per paper, covering every cited key. This was decided i
 
 Ported from asqc's `check.lint` and extended:
 
-- **Scope:** the document body (after `\begin{document}`), with comments, vouch macro arguments and LaTeX plumbing masked. Plumbing includes the arguments of `\label`, the `\ref`/`\cref`/`\autoref`/`\eqref` family and `\cite*`, URLs, `\includegraphics` options, lengths and units (`0.5\linewidth`, `3pt`, `2em`), tabular column specs, and `\begin`/`\end`.
+- **Scope:** the document body (after `\begin{document}`). A file `\input` in the preamble, and everything it inputs, is skipped: it holds definitions, such as a table of `\newlabel` lines, and not prose. A file read from the body, or from both, is linted. Within the body, comments, vouch macro arguments and LaTeX plumbing masked. Plumbing includes the arguments of `\label`, the `\ref`/`\cref`/`\autoref`/`\eqref` family and `\cite*`, URLs, `\includegraphics` options, lengths and units (`0.5\linewidth`, `3pt`, `2em`), tabular column specs, and `\begin`/`\end`.
 - **Always flagged**, including in math: decimals (`0.93`), percentages (`12.5\%`), `\times` multipliers after a number, thousands separators (`18{,}535`), scientific notation (`1.2\times10^{-3}`), and `\pm` pairs.
 - **Flagged in text mode:** integers of two or more digits (`38 layers`). Years (`19xx`/`20xx`) are skipped when `allow_years` is on. Single digits and spelled-out numbers are never flagged.
 - **Exemptions:** `[lint] allow` rules (a regex matched against ±60 characters of context, plus a reason, optionally limited to certain files), and a `% vouch: ignore` pragma on the line.

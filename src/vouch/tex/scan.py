@@ -54,6 +54,9 @@ class Document:
     missing_inputs: list[tuple[str, int, str]]
     raw: dict[Path, str]
     masked: dict[Path, str]
+    # files read only from the preamble (an \input before \begin{document}): macro and
+    # label definitions, never prose, so the number lint skips them
+    preamble: frozenset = frozenset()
 
     def rel(self, p: Path) -> str:
         try:
@@ -232,6 +235,8 @@ class _Scanner:
         self.graphicspath: list[str] = [""]
         self.short = False
         self.body_start: dict[Path, int] = {}
+        self.in_preamble: set[Path] = set()     # reached from a preamble at least once
+        self.in_body: set[Path] = set()         # reached from a document body at least once
 
     def rel(self, p: Path) -> str:
         try:
@@ -266,14 +271,15 @@ class _Scanner:
 
     # -- pass 1: definitions ---------------------------------------------------------
 
-    def collect(self, path: Path, stack: tuple = ()) -> None:
+    def collect(self, path: Path, stack: tuple = (), preamble: bool = False) -> None:
         src = self.load(path)
         if src is None or path.resolve() in stack:
             return
+        (self.in_preamble if preamble else self.in_body).add(path.resolve())
         stack = stack + (path.resolve(),)
-        m = re.search(r"\\begin\s*\{document\}", src)
-        if m:
-            self.body_start[path.resolve()] = m.end()
+        begin = re.search(r"\\begin\s*\{document\}", src)
+        if begin:
+            self.body_start[path.resolve()] = begin.end()
         opt = re.search(r"\\usepackage\s*\[([^\]]*)\]\s*\{vouch\}", src)
         if opt and "short" in {o.strip().split("=")[0] for o in opt.group(1).split(",")}:
             self.short = True
@@ -290,7 +296,10 @@ class _Scanner:
             elif cmd in _INPUT_CMDS:
                 target = self._input_target(src, m, path)
                 if target is not None:
-                    self.collect(target, stack)
+                    # before this file's \begin{document} is preamble; a file with none
+                    # is read where its parent read it
+                    self.collect(target, stack,
+                                 m.start() < begin.start() if begin else preamble)
 
     def _parse_def(self, src: str, m: re.Match, path: Path) -> _Def | None:
         cmd, i = m.group(1), m.end()
@@ -479,4 +488,5 @@ def scan(main: str | os.PathLike, root: str | os.PathLike,
     files = list(s.masked)
     return Document(main=s.main, root=s.root, files=files, citations=cites, short=s.short,
                     body_start=s.body_start, missing_inputs=sorted(set(s.missing)),
-                    raw=s.raw, masked=s.masked)
+                    raw=s.raw, masked=s.masked,
+                    preamble=frozenset(s.in_preamble - s.in_body))

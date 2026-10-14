@@ -36,7 +36,7 @@ code.
 
 ## The bare-number lint
 
-- **Scope:** the document body, with comments, vouch macro arguments and LaTeX plumbing masked. Plumbing includes `\label`, the `\ref` family, `\cite*`, URLs, `\includegraphics` options, lengths and units, tabular column specs, and `\begin`/`\end`.
+- **Scope:** the document body. A file `\input` in the preamble, and anything it inputs, is skipped, since it holds definitions (a table of `\newlabel` lines, say) and not prose; a file read from the body is linted. Within the body, comments, vouch macro arguments and LaTeX plumbing are masked. Plumbing includes `\label`, the `\ref` family, `\cite*`, URLs, `\includegraphics` options, lengths and units, tabular column specs, and `\begin`/`\end`.
 - **Always flagged**, including in math: decimals (`0.93`), percentages (`12.5\%`), `\times` multipliers, thousands separators (`18{,}535`), scientific notation, and `\pm` pairs.
 - **Flagged in text mode:** integers of two or more digits (`38 layers`). Years (`19xx`/`20xx`) are skipped when `allow_years` is on. Single digits and spelled-out numbers are never flagged.
 - **Exemptions:** `[lint] allow` rules (a regex matched against context, plus a reason), and a `% vouch: ignore` pragma on the line.
