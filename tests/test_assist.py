@@ -56,6 +56,30 @@ def issues(project, strict=False):
 # placeholders
 # ---------------------------------------------------------------------------
 
+def test_quiet_check_collapses_owed_values_to_one_line(proj, capsys):
+    """The pre-commit hook runs `vouch check --quiet`. A draft citing owed values
+    printed three lines per citation on every commit, burying any real problem; they
+    are now one line pointing at `vouch todo`. Without --quiet, and under --strict,
+    where they are errors, each is printed in full."""
+    proj.write("vouch_values.py", '''
+        import vouch
+
+        vouch.expect("a.owed", desc="first", producer="python a.py")
+        vouch.expect("b.owed", desc="second", producer="python b.py")
+    ''')
+    paper(proj, "\\vouch{a.owed}, \\vouch{b.owed} and \\vouch{a.owed} again.")
+    build(Config.load(proj.root))
+    capsys.readouterr()
+    assert cli.main(["check", "--quiet", "--no-env"]) == 0
+    out = capsys.readouterr().out
+    assert "2 value(s) still owed, cited 3 time(s)" in out and "vouch todo" in out
+    assert "python a.py" not in out
+    assert cli.main(["check", "--no-env"]) == 0
+    assert "python a.py" in capsys.readouterr().out
+    assert cli.main(["check", "--quiet", "--strict", "--no-env"]) == 1
+    assert "python a.py" in capsys.readouterr().out
+
+
 def test_expect_makes_a_number_owed_not_invented(proj, capsys):
     proj.write("vouch_values.py", '''
         import vouch

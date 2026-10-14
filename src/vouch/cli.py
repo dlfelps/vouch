@@ -361,11 +361,21 @@ def cmd_check(args) -> int:
                         issues=[i.to_json() for i in rep.issues]))
         return EXIT_OK if rep.ok else EXIT_FAIL
     shown = [i for i in rep.issues if i.severity != "info" or args.verbose]
-    if not args.quiet or shown:
+    # --quiet (the pre-commit hook) collapses pending values to one line: they are the
+    # planned state of a draft, `vouch todo` lists them, and printed one by one they
+    # buried any real problem in every commit's output. Under --strict they are errors
+    # and are printed in full.
+    owed = [i for i in shown if args.quiet and i.check == "pending" and i.severity != "error"]
+    shown = [i for i in shown if i not in owed]
+    if not args.quiet or shown or owed:
         C.out(f"vouch check: {', '.join(s['papers'])} · {s['citations']} citations · "
               f"{s['runs_fresh']}/{s['runs_cited']} cited runs fresh")
     for i in shown:
         _print_issue(i)
+    if owed:
+        keys = sorted({i.subject for i in owed if i.subject})
+        C.out(f"  ! pending        {len(keys)} value(s) still owed, cited {len(owed)} time(s): "
+              f"`vouch todo` lists them with the command that produces each")
     infos = sum(1 for i in rep.issues if i.severity == "info")
     if infos and not args.verbose and not args.quiet:
         C.out(f"  · {infos} note(s) (--verbose to show)")
