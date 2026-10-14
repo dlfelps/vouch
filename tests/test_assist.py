@@ -373,6 +373,37 @@ def test_init_agents_shows_then_writes(proj, capsys, monkeypatch):
     assert new.count("<!-- vouch -->") == 1 and "Never type an empirical" in new
 
 
+def test_the_hook_runs_vouch_the_way_the_agent_can_reach_it(proj, monkeypatch):
+    """The agent runs the hook later, from its own shell, outside the environment that
+    ran `vouch init`. A bare `vouch` was written whenever `vouch` was on PATH, which it
+    is under `uv run vouch init` -- and the hook then failed on every edit."""
+    from pathlib import Path
+    from vouch.agents import _hook_command, planned
+    exe = "vouch.exe" if sys.platform == "win32" else "vouch"
+    venv_vouch = proj.root / ".venv" / ("Scripts" if sys.platform == "win32" else "bin") / exe
+    venv_vouch.parent.mkdir(parents=True)
+    venv_vouch.write_text("", encoding="utf-8")
+
+    def which(found):
+        return lambda name: {"vouch": str(found), "uv": "/usr/bin/uv"}.get(name)
+
+    # a uv project whose lock installs vouch: through uv, portable
+    proj.write("uv.lock", 'version = 1\n\n[[package]]\nname = "vouch-paper"\nversion = "0.4"\n')
+    monkeypatch.setattr("vouch.agents.shutil.which", which(venv_vouch))
+    assert _hook_command("claude", proj.root) == ("uv run --no-sync vouch hook claude", True)
+    # vouch in the project's own virtual environment, no uv: its path from the project
+    (proj.root / "uv.lock").unlink()
+    rel = venv_vouch.relative_to(proj.root).as_posix()
+    assert _hook_command("claude", proj.root) == (f'"$CLAUDE_PROJECT_DIR"/{rel} hook claude', True)
+    # vouch only inside some other virtual environment: this interpreter, machine-local
+    monkeypatch.setattr("vouch.agents.sys.prefix", str(Path(sys.executable).parent.parent))
+    monkeypatch.setattr("vouch.agents.sys.base_prefix", "/somewhere/else")
+    monkeypatch.setattr("vouch.agents.shutil.which", which(Path(sys.executable).parent / exe))
+    cmd, portable = _hook_command("claude", proj.root)
+    assert not portable and "-m vouch hook claude" in cmd
+    assert proj.root / ".claude" / "settings.local.json" in planned(proj.root, ["hook"])
+
+
 def test_public_names_stay_functions():
     import vouch
     import vouch.derived  # noqa: F401

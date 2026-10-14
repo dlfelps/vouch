@@ -36,7 +36,7 @@ can be updated in place:
 - Never compute with numbers in prose (differences, ratios, "2x"): `vouch compare A B --write`, then cite the derived key.
 - Qualitative comparisons ("outperforms", "all seeds") go in `\vouchclaim` backed by a claim.
 - Give a new tracked function a real docstring -- vouch shows it back at lookup time (`vouch cite`, `vouch search`) as a sanity check. If one already exists on a function you're writing about, use it instead of guessing a description.
-- Before finishing: `vouch check --strict` must pass.
+- Before finishing: `vouch build` and `vouch check` must pass. Before submitting: `vouch check --strict`, which also fails on pending `vouch.expect()` values -- allowed while results are owed, never replaced by invented numbers.
 - If `vouch changes` lists anything: re-read each cited sentence, fix wrong text, and report SUSPICIOUS changes to the user.
 - Never run `vouch ack` or `vouch accept` without the user's approval. Never edit `.vouch/` or generated files.
 <!-- /vouch -->
@@ -50,6 +50,16 @@ In `.claude/settings.json`:
 {"hooks": {"PostToolUse": [{"matcher": "Edit|Write|MultiEdit",
   "hooks": [{"type": "command", "command": "vouch hook claude"}]}]}}
 ```
+
+The agent runs the hook from its own shell, not from the environment `vouch init`
+ran in, so `init` writes the command that shell can reach:
+
+| the project | the command |
+|---|---|
+| a uv project whose `uv.lock` installs `vouch-paper` | `uv run --no-sync vouch hook claude` |
+| vouch in a virtual environment inside the project | `"$CLAUDE_PROJECT_DIR"/.venv/…/vouch hook claude` |
+| vouch on `PATH`, outside any virtual environment | `vouch hook claude` |
+| anything else | this Python's absolute path, in `.claude/settings.local.json` |
 
 `vouch hook claude` reads the hook payload from stdin and ignores anything that
 isn't a `.tex` file in a configured paper. For those, it checks just the edited

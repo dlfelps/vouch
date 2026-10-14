@@ -1563,7 +1563,7 @@ It ends with a command cheat-sheet, including `vouch document` (§12.3).
 - Never compute with numbers in prose (differences, ratios, "2x"): `vouch compare A B --write`, then cite the derived key.
 - Qualitative comparisons ("outperforms", "all seeds") go in `\vouchclaim` backed by a claim.
 - Give a new tracked function a real docstring -- vouch shows it back at lookup time (`vouch cite`, `vouch search`) as a sanity check. If one already exists on a function you're writing about, use it instead of guessing a description.
-- Before finishing: `vouch check --strict` must pass.
+- Before finishing: `vouch build` and `vouch check` must pass. Before submitting: `vouch check --strict`, which also fails on pending `vouch.expect()` values -- allowed while results are owed, never replaced by invented numbers.
 - If `vouch changes` lists anything: re-read each cited sentence, fix wrong text, and report SUSPICIOUS changes to the user.
 - Never run `vouch ack` or `vouch accept` without the user's approval. Never edit `.vouch/` or generated files.
 <!-- /vouch -->
@@ -1601,7 +1601,13 @@ On Linux and macOS, where interpreter start is a fraction of that, it is well un
 **`vouch init --agents [skill,rules,hook] [--yes] [--stop-gate]`:**
 - It prints a unified diff of every file it would write. Without `--yes` it writes only after a yes at a terminal, and never when run non-interactively.
 - The rules block replaces an existing `<!-- vouch -->` block in place.
-- The hook merges into existing settings and never duplicates itself. It uses `vouch hook claude` when `vouch` is on `PATH`; otherwise it uses this Python's absolute path, written to `.claude/settings.local.json`, since such a path is not portable.
+- The hook merges into existing settings and never duplicates itself. The agent runs it later from its own shell, outside the environment `vouch init` ran in, so the command is chosen for that shell, in this order:
+  1. a uv project whose `uv.lock` installs `vouch-paper`: `uv run --no-sync vouch hook claude`;
+  2. vouch in a virtual environment inside the project: `"$CLAUDE_PROJECT_DIR"/.venv/…/vouch hook claude`;
+  3. vouch on `PATH` outside any virtual environment: `vouch hook claude`;
+  4. otherwise this Python's absolute path, written to `.claude/settings.local.json`, since such a path is not portable.
+
+  The first three go to `.claude/settings.json`. (Testing only `PATH` used to write a bare `vouch` under `uv run vouch init`, which then failed on every edit.) The MCP entry of `.mcp.json` is chosen the same way.
 - `--stop-gate` also installs a `Stop` hook, `vouch hook stop`. It runs `vouch check --strict` and exits 2 with the issues, so an agent can't finish while the gate fails, and it steps aside when Claude Code reports that the stop hook is already active. It is off by default, because blocking an agent from finishing is intrusive.
 
 ### 13.6 JSON output (`schema: vouch/1`)

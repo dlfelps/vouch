@@ -83,7 +83,9 @@ def evaluate(dataset: str, model: str, seed: int = 0) -> dict:
 5. A number no run has produced yet: cite `\vouch{new.key}` anyway, add
    `vouch.expect("new.key", desc=..., producer="python ...")` to `vouch_values.py`,
    and tell the user the experiment is owed (`vouch todo`). Never invent it.
-6. `vouch build`, then `vouch check --strict` must pass.
+6. `vouch build`, then `vouch check` must pass. Before the paper is submitted,
+   `vouch check --strict` must pass too. It also fails on pending `expect()` values,
+   which step 5 allows while experiments are owed, so don't hold a draft to it.
 
 ## Handle changed values
 
@@ -129,18 +131,61 @@ RULES = """<!-- vouch -->
 - Give a new tracked function a real docstring -- vouch shows it back at lookup time (`vouch cite`, `vouch search`) as a sanity check. If one already exists on a function you're writing about, use it instead of guessing a description.
 - Never compute with numbers in prose (differences, ratios, "2x"): `vouch compare A B --write`, then cite the derived key.
 - Qualitative comparisons ("outperforms", "all seeds") go in `\\vouchclaim` backed by a claim.
-- Before finishing: `vouch build` and `vouch check --strict` must pass.
+- Before finishing: `vouch build` and `vouch check` must pass. Before submitting: `vouch check --strict`, which also fails on pending `vouch.expect()` values -- allowed while results are owed, never replaced by invented numbers.
 - If `vouch changes` lists anything: re-read each cited sentence, fix wrong text, and report SUSPICIOUS changes to the user.
 - Never run `vouch ack` or `vouch accept` without the user's approval. Never edit `.vouch/` or generated files.
 <!-- /vouch -->
 """
 
 
-def _hook_command(sub: str) -> tuple[str, bool]:
-    """(command, portable): ``vouch hook ...`` if vouch is on PATH, else this Python."""
-    if shutil.which("vouch"):
-        return f"vouch hook {sub}", True
-    return f'"{sys.executable}" -m vouch hook {sub}', False
+def _uv_project_has_vouch(root: Path) -> bool:
+    """A uv project whose lock file installs vouch: ``uv run`` will find it."""
+    lock = root / "uv.lock"
+    try:
+        return '\nname = "vouch-paper"\n' in lock.read_text(encoding="utf-8").replace("\r\n", "\n")
+    except OSError:
+        return False
+
+
+def _vouch_launcher(root: Path | None) -> tuple[list[str], bool]:
+    """(argv that starts ``vouch``, portable) for a hook or server the agent will run.
+
+    The agent runs it later, from its own shell, without the environment ``vouch init``
+    ran in. ``shutil.which("vouch")`` alone was therefore the wrong test: under
+    ``uv run vouch init`` it finds the project's virtual environment, and the hook it
+    wrote, a bare ``vouch``, then failed on every edit. In order of preference:
+
+    * a uv project whose lock installs vouch: ``uv run --no-sync vouch``, which works
+      for everyone who checks the project out;
+    * vouch in a virtual environment inside the project: its path from
+      ``$CLAUDE_PROJECT_DIR``, also portable across checkouts;
+    * vouch on PATH outside any virtual environment: ``vouch``;
+    * otherwise this interpreter by absolute path, which is machine-specific and so
+      goes to ``settings.local.json``.
+    """
+    if root is not None and shutil.which("uv") and _uv_project_has_vouch(root):
+        return ["uv", "run", "--no-sync", "vouch"], True
+    found = shutil.which("vouch")
+    if found and not Path(found).parent.parts:          # a bare name: on PATH as such
+        return ["vouch"], True
+    if found:
+        where = Path(found).resolve()
+        if root is not None:
+            try:
+                rel = where.relative_to(Path(root).resolve()).as_posix()
+                return [f'"$CLAUDE_PROJECT_DIR"/{rel}'], True
+            except ValueError:
+                pass
+        in_venv = sys.prefix != sys.base_prefix
+        if not (in_venv and Path(sys.prefix).resolve() in where.parents):
+            return ["vouch"], True
+    return [f'"{sys.executable}"', "-m", "vouch"], False
+
+
+def _hook_command(sub: str, root: Path | None = None) -> tuple[str, bool]:
+    """(command, portable) that runs ``vouch hook <sub>`` from the agent's shell."""
+    argv, portable = _vouch_launcher(root)
+    return " ".join([*argv, "hook", sub]), portable
 
 
 def _with_hook(settings: dict, event: str, matcher: str | None, command: str) -> dict:
@@ -181,7 +226,7 @@ def planned(root: Path, parts: list[str], stop_gate: bool = False) -> dict[Path,
             new = (text.rstrip("\n") + "\n\n" if text.strip() else "") + RULES
         out[p] = (text, new)
     if "hook" in parts:
-        cmd, portable = _hook_command("claude")
+        cmd, portable = _hook_command("claude", root)
         p = root / ".claude" / ("settings.json" if portable else "settings.local.json")
         text = old(p)
         try:
@@ -191,7 +236,7 @@ def planned(root: Path, parts: list[str], stop_gate: bool = False) -> dict[Path,
         if settings is not None:
             settings = _with_hook(settings, "PostToolUse", "Edit|Write|MultiEdit", cmd)
             if stop_gate:
-                settings = _with_hook(settings, "Stop", None, _hook_command("stop")[0])
+                settings = _with_hook(settings, "Stop", None, _hook_command("stop", root)[0])
             out[p] = (text, json.dumps(settings, indent=2) + "\n")
     if "mcp" in parts:
         p = root / ".mcp.json"
@@ -201,9 +246,14 @@ def planned(root: Path, parts: list[str], stop_gate: bool = False) -> dict[Path,
         except ValueError:
             cfg = None
         if cfg is not None:
-            cmd, portable = _hook_command("")
-            entry = ({"command": "vouch", "args": ["mcp"]} if portable else
-                     {"command": sys.executable, "args": ["-m", "vouch", "mcp"]})
+            argv, portable = _vouch_launcher(root)
+            if not portable:
+                argv = [sys.executable, "-m", "vouch"]
+            elif argv[0].startswith('"$CLAUDE_PROJECT_DIR"/'):
+                # an MCP client starts the server without a shell: no variable expansion,
+                # and the working directory is the project root
+                argv = [argv[0].split("/", 1)[1]]
+            entry = {"command": argv[0], "args": [*argv[1:], "mcp"]}
             servers = cfg.setdefault("mcpServers", {})
             if servers.get("vouch") != entry:
                 servers["vouch"] = entry
