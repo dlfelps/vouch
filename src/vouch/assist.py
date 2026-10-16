@@ -207,7 +207,7 @@ def cite(ctx, key: str) -> dict:
         p = idx.pending_for(key)
         if p is not None:
             return {"key": key, "kind": "pending", "snippets": [{"latex": "\\vouch{" + key + "}",
-                    "renders": f"[pending: {key}]"}], "desc": p.get("desc") or "",
+                    "renders": f"pending: {key} (boxed)"}], "desc": p.get("desc") or "",
                     "producer": p.get("producer"), "note": "pending: the PDF shows a placeholder "
                     "until a run records it"}
         return {"key": key, "error": f"{key} is not a key",

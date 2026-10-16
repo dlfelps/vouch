@@ -316,6 +316,29 @@ def test_final_has_no_links_tooltips_or_appendix_and_refuses_unknown_keys(exampl
 
 
 @needs_latex
+def test_the_pending_placeholder_can_be_restyled(example):
+    # SPEC §7.2: a pending key renders a boxed placeholder "or the placeholder text you
+    # configure". The sty hardcoded \fbox{\scriptsize pending: key} with no hook, so the
+    # placeholder could not be configured at all.
+    with open(example / "vouch_values.py", "a", encoding="utf-8") as f:
+        f.write('\nvouch.expect("later.x", desc="owed", producer="python later.py")\n')
+    build(Config.load(example))
+    paper = example / "paper"
+    name = variant(paper, "provenance=link", "pend", r"\vouch{later.x}")
+    src = (paper / name).read_text(encoding="utf-8")
+    restyle = r"\renewcommand\vouchpending[1]{\typeout{PLACEHOLDER<#1>}[owed: #1]}"
+    (paper / name).write_text(src.replace(r"\begin{document}", restyle + "\n" + r"\begin{document}"),
+                              encoding="utf-8")
+    proc = pdflatex(paper, name)
+    log = log_of(paper, "pend")
+    assert proc.returncode == 0, log[-2000:]
+    assert "PLACEHOLDER<later.x>" in log
+    assert "Value `later.x' is pending" in log
+    default = pdflatex(paper, variant(paper, "provenance=link", "pend0", r"\vouch{later.x}"))
+    assert default.returncode == 0 and "Value `later.x' is pending" in log_of(paper, "pend0")
+
+
+@needs_latex
 def test_draft_marks_unknown_keys_and_false_claims(example):
     rec = example / ".vouch" / "runs" / "train.json"
     data = json.loads(rec.read_text(encoding="utf-8"))

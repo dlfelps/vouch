@@ -176,7 +176,7 @@ def expect(key: str, *, desc: str, producer: str | None = None, fmt: Any = None,
         vouch.expect("imagenet.convnext.acc", desc="ConvNeXt-T top-1 on ImageNet",
                      producer="python train.py --dataset imagenet --model convnext")
 
-    The paper can cite it at once: the PDF shows ``[pending: key]``, ``vouch todo``
+    The paper can cite it at once: the PDF shows a boxed ``pending: key``, ``vouch todo``
     lists it with its producer, and it resolves by itself once a run records it.
     """
     rel, site = _caller_site()

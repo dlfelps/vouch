@@ -122,7 +122,7 @@ Rendering produces only the **body rows** (`a & b & c \\`). You write the
 `vouch.expect(key, desc=…, producer=…)` declares a number the paper needs before
 any run produces it:
 
-- In the PDF it renders as a boxed **[pending: key]**, visibly different from an unknown key's **??key**.
+- In the PDF it renders as a boxed **pending: key** (`\vouchpending`; [LaTeX](latex.md) says how to restyle it), visibly different from an unknown key's **??key**.
 - `vouch todo` lists pending keys with their `producer` commands.
 - The check reports it as `pending`: a warning in drafts, an error under `--strict` and in `final` builds.
 - Once a run records the key, the placeholder resolves automatically.

@@ -19,6 +19,8 @@
 %%   values=FILE              the generated values file (default vouch-values.tex)
 %%
 %% \vouchprovenance places the appendix yourself; otherwise it ends the draft.
+%% \vouchpending{key} is the placeholder of a pending key (a boxed "pending: key");
+%% redefine it with \renewcommand\vouchpending[1]{...} to restyle it.
 %% Copied into the paper by `vouch init`; see SPEC.md section 7.
 \NeedsTeXFormat{LaTeX2e}
 \ProvidesPackage{vouch}[2026/09/18 v0.2 numbers vouched for by code]
@@ -134,6 +136,10 @@
   \global\vouch@undefinedtrue
   \PackageWarning{vouch}{Format `#2' of `#1' was not built; run `vouch build'}%
   \vouch@mark{??\detokenize{#1}[\detokenize{#2}]}}
+% \vouchpending{key}: the placeholder a pending key prints, the key detokenized. SPEC 7.2
+% promised "the placeholder text you configure", but the box was hardcoded with no
+% hook; redefine this one (\renewcommand\vouchpending[1]{...}) to restyle it.
+\providecommand\vouchpending[1]{\fbox{\scriptsize pending: #1}}
 \def\vouch@pendingmark#1{%
   \global\vouch@undefinedtrue
   \ifvouch@opt@final
@@ -142,7 +148,7 @@
   \else
     \PackageWarning{vouch}{Value `#1' is pending (declared with vouch.expect)}%
   \fi
-  \fbox{\scriptsize pending: \detokenize{#1}}}
+  \vouchpending{\detokenize{#1}}}
 
 % ---------------------------------------------------------------------------
 % citations, for the appendix: which keys, and on which pages

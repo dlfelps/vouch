@@ -27,7 +27,7 @@ line is needed.
 Missing keys render the way `\ref` handles missing labels:
 
 - **Unknown key:** `\textbf{??\detokenize{key}}`, plus a `\PackageWarning` and an end-of-document summary.
-- **Pending key:** `\fbox{\scriptsize pending: key}` (or the placeholder text you configure).
+- **Pending key:** `\vouchpending{key}`, by default `\fbox{\scriptsize pending: key}`. Redefine it to change the placeholder: `\renewcommand\vouchpending[1]{\textbf{[owed: #1]}}`. The key arrives detokenized.
 
 ## Package options
 

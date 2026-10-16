@@ -738,7 +738,7 @@ Rendering produces only the **body rows** (`a & b & c \\`). You write the `tabul
 
 `vouch.expect(key, desc=…, producer=…)` declares a number the paper needs before any run produces it. Placeholders are how a draft, whether an LLM's or a person's, can be written ahead of the experiments without inventing numbers:
 
-- In the PDF it renders as a boxed **[pending: key]**, which is visibly different from an unknown key's **??key**.
+- In the PDF it renders as a boxed **pending: key** (`\vouchpending`, §7.2), which is visibly different from an unknown key's **??key**.
 - `vouch todo` lists pending keys with their `producer` commands.
 - The check reports it as `pending`: a warning in drafts, an error under `--strict` and in `final` builds.
 - Once a run records the key, the placeholder resolves automatically. A leftover `expect()` for a key that now exists is an `info` message ("expectation met; you can delete it").
@@ -868,7 +868,7 @@ Named formats from `[format] named` can be used anywhere a format can: `\vouch[p
 Missing keys render the way `\ref` handles missing labels:
 
 - **Unknown key:** `\textbf{??\detokenize{key}}`, plus `\PackageWarning{vouch}{Value `key' undefined}` and an end-of-document summary: *"There were undefined vouch values. Run `vouch build`."*
-- **Pending key:** `\fbox{\scriptsize pending: key}` (or the placeholder text you configure).
+- **Pending key:** `\vouchpending{key}`, by default `\fbox{\scriptsize pending: key}`. Redefine it to change the placeholder: `\renewcommand\vouchpending[1]{\textbf{[owed: #1]}}`. The key arrives detokenized.
 
 ### 7.3 Package options
 
@@ -1417,7 +1417,7 @@ The rule vouch is built around: **at every point where an agent would otherwise 
 | "what was the accuracy again?" | `CATALOG.md`, `vouch search`, `vouch cite` |
 | writing the difference or ratio of two numbers | `vouch compare` → a `derive` |
 | "A outperforms B" | `vouch compare` → a claim; `\vouchclaim` |
-| a number that doesn't exist yet | `vouch.expect()` → `[pending: key]` |
+| a number that doesn't exist yet | `vouch.expect()` → a boxed `pending: key` |
 | converting an existing paper | `vouch suggest --apply`, with `no-source` for numbers matching no record |
 | knowing whether it slipped | the edit hook (immediate) and `check --strict --json` (a fix list) |
 | a value changed under its prose | `vouch changes`, with the citing sentences |
@@ -1525,7 +1525,7 @@ When an agent drafting prose needs a number that doesn't exist, the approved mov
 2. Add `vouch.expect("imagenet.convnext.acc", desc=…, producer="…")` to `vouch_values.py`.
 3. Tell the user the experiment is owed. `vouch todo` lists it.
 
-The draft compiles with a visible `[pending: …]`. This gives the agent a legitimate move other than inventing a number, which is the most important anti-hallucination feature in this spec.
+The draft compiles with a visible, boxed `pending: …`. This gives the agent a legitimate move other than inventing a number, which is the most important anti-hallucination feature in this spec.
 
 ### 13.4 While writing experiment code
 
@@ -1910,7 +1910,7 @@ Tooling: uv, pytest, argparse (no click, to keep the core dependency-free). The 
 - **LLM layer:**
   - `search` ranks the intended key first on a fixture of natural-language queries.
   - `suggest` maps `93.2\%` to the right key.
-  - A pending key renders `[pending: …]` and fails `--strict`.
+  - A pending key renders a boxed `pending: …` and fails `--strict`.
   - `vouch hook claude` stays under 200 ms on the example.
 - **Agent dry run:** in a fresh copy of the example, a Claude subagent that has only the skill and the CLI is asked to "write a results paragraph comparing the models". Success means:
   - `check --strict` passes

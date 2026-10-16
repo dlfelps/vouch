@@ -12,7 +12,7 @@ it in CI.
 
 - **Numbers you don't have yet.** `vouch.expect("key", desc=..., producer="python ...")`
   in `vouch_values.py` lets you cite a result before the experiment exists. The
-  PDF shows `[pending: key]` and `vouch todo` lists what's owed. See
+  PDF shows a boxed `pending: key` and `vouch todo` lists what's owed. See
   [Derived values, claims, tables](../guide/derived-values.md).
 - **Comparisons.** `vouch compare evaluate.knn.n_train_640.acc evaluate.linear.n_train_640.acc`
   prints the difference, a Welch t-test and the `@vouch.derive` and `@vouch.claim`

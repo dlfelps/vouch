@@ -10,7 +10,7 @@ guess, make the correct action cheaper than the guess.**
 | "what was the accuracy again?" | `.vouch/CATALOG.md`, `vouch search`, `vouch cite` |
 | writing the difference or ratio of two numbers | `vouch compare` → a `derive` |
 | "A outperforms B" | `vouch compare` → a claim; `\vouchclaim` |
-| a number that doesn't exist yet | `vouch.expect()` → `[pending: key]` |
+| a number that doesn't exist yet | `vouch.expect()` → a boxed `pending: key` |
 | converting an existing paper | `vouch suggest --apply`, with `no-source` for numbers matching no record |
 | knowing whether it slipped | the edit hook (immediate) and `check --strict --json` (a fix list) |
 | a value changed under its prose | `vouch changes`, with the citing sentences |
@@ -71,7 +71,7 @@ move is:
 2. Add `vouch.expect("imagenet.convnext.acc", desc=…, producer="…")` to `vouch_values.py`.
 3. Tell the user the experiment is owed. `vouch todo` lists it.
 
-The draft compiles with a visible `[pending: …]`. This is the most important
+The draft compiles with a visible, boxed `pending: …`. This is the most important
 anti-hallucination feature in vouch: a legitimate move other than inventing a
 number.
 

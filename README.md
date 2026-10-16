@@ -146,7 +146,7 @@ guess:
 vouch.expect("imagenet.vit.acc", desc="ViT top-1 on ImageNet", producer="python train.py --dataset imagenet")
 ```
 
-The PDF shows `[pending: imagenet.vit.acc]`, `vouch todo` lists what is owed, and
+The PDF shows a boxed `pending: imagenet.vit.acc`, `vouch todo` lists what is owed, and
 the placeholder resolves once a run records the key.
 
 ## 5. Check
