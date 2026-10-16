@@ -83,7 +83,9 @@ vouch: paper/results.tex has 3 problem(s) -- fix them now:
 
 It's stdlib-only and reads a precomputed index (`.vouch/cache/index.json`,
 written by `build`), so a tex edit costs on the order of 200–300 ms including
-interpreter startup.
+interpreter startup. A run you record after the last build counts at once: the
+hook also reads the run records written since the index, so their keys are known
+and their numbers are matched without another `vouch build`.
 
 ## `vouch init --agents [skill,rules,hook] [--yes] [--stop-gate]`
 

@@ -13,8 +13,9 @@ Problems go to stderr and the hook exits 2, which Claude Code feeds back to the
 agent in the same turn: a slip is corrected immediately, not at commit time.
 
 It must stay fast (it runs after every edit), so it reads the small index ``vouch
-build`` writes to ``.vouch/cache/index.json`` instead of loading the run store, and
-does nothing at all for files outside a vouch project.
+build`` writes to ``.vouch/cache/index.json`` instead of loading the run store, plus
+only the run records written since that index, and does nothing at all for files
+outside a vouch project.
 """
 
 from __future__ import annotations
@@ -36,9 +37,17 @@ def write_index(ctx) -> Path | None:
     from .valuesmod import static_keys, values_modules
     idx = ctx.idx
     cands = Candidates(idx)
+    by_run: dict[str, list[str]] = {}
+    for key, e in idx.entries.items():
+        if e.run in idx.runs:
+            by_run.setdefault(e.run, []).append(key)
     data = {
         "schema": "vouch/1",
         "keys": sorted(set(idx.entries) | set(idx.tables)),
+        # the record each run was read from, and the keys it gave, so that the hook can
+        # fold in a run recorded after this build (_with_fresh_runs)
+        "runs": {run: rec.get("record_hash") for run, rec in sorted(idx.runs.items())},
+        "run_keys": {run: sorted(keys) for run, keys in sorted(by_run.items())},
         "pending": {k: d.get("producer") for k, d in sorted(idx.pending.items())},
         "defined": sorted(static_keys(values_modules(ctx.cfg))),
         "numbers": [[v, r, k] for v, r, k in cands.rows],
@@ -56,6 +65,58 @@ def write_index(ctx) -> Path | None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
     return path
+
+
+def _with_fresh_runs(cfg: Config, data: dict, index_path: Path) -> dict:
+    """The index with every run recorded since it was written folded in.
+
+    The hook reads the index ``vouch build`` wrote, not the run store. An experiment run
+    after that build records keys the paper can already cite (``vouch check`` loads the
+    store and finds them), and the hook used to report each one as an unknown key that
+    "no run ... provides", for a run that did, and its numbers as matching no recorded
+    value. A record newer than the index whose hash the index does not hold now replaces
+    what the index had from its run; a run whose record was deleted drops out. Only those
+    records are read, so the hook stays cheap.
+    """
+    from .index import Index
+    from .store import RecordError, read_record, runs_dir
+    from .tex.lint import Candidates
+    hashes = data.get("runs") or {}
+    run_keys = data.get("run_keys") or {}
+    try:
+        since = index_path.stat().st_mtime
+    except OSError:
+        return data
+    d = runs_dir(cfg.store)
+    files = sorted(d.glob("*.json")) if d.is_dir() else []
+    present = {p.stem for p in files}
+    fresh = Index(cfg)
+    stale: set[str] = set()
+    for path in files:
+        try:
+            if path.stat().st_mtime <= since:
+                continue
+            rec = read_record(path)
+        except (RecordError, OSError):
+            continue
+        run = rec.get("run", path.stem)
+        if hashes.get(run) == rec.get("record_hash"):
+            continue
+        stale |= set(run_keys.get(run, ()))
+        fresh._add_run(run, rec)
+    for run, keys in run_keys.items():
+        if run not in present:
+            stale |= set(keys)
+    if not stale and not fresh.entries:
+        return data
+    cands = Candidates(fresh)
+    out = dict(data)
+    out["keys"] = sorted((set(data.get("keys", [])) - stale) | set(fresh.entries) | set(fresh.tables))
+    out["numbers"] = ([r for r in data.get("numbers", []) if r[2] not in stale]
+                      + [[v, r, k] for v, r, k in cands.rows])
+    out["stats"] = ([s for s in data.get("stats", []) if s[0] not in stale]
+                    + [[k, s.mean, s.std] for k, s in cands.stats])
+    return out
 
 
 class _Cached:
@@ -123,6 +184,7 @@ def check_file(path: Path) -> list[str] | None:
         data = json.loads((cfg.store / INDEX).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None                               # never built: `vouch build` reports everything
+    data = _with_fresh_runs(cfg, data, cfg.store / INDEX)
     try:
         rel = path.relative_to(root).as_posix()
     except ValueError:

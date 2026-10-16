@@ -1582,7 +1582,7 @@ It ends with a command cheat-sheet, including `vouch document` (§12.3).
 ```
 
 `vouch hook claude` reads the hook payload from stdin and ignores anything that isn't a `.tex` file in a configured paper. For those, it checks just the edited file for:
-- unknown keys, with did-you-mean (a key is known if a run, a definition, or an expectation provides it, including definitions added to `vouch_values.py` since the last build)
+- unknown keys, with did-you-mean (a key is known if a run, a definition, or an expectation provides it, including definitions added to `vouch_values.py` and runs recorded since the last build)
 - malformed macros (`\vouch{` never closed, `\vouchclaim` without its prose)
 - typed numbers: the exact `\vouch[fmt]{key}` to replace each with, or "matches no recorded value"
 
@@ -1595,7 +1595,7 @@ vouch: paper/results.tex has 3 problem(s) -- fix them now:
   line 2: \vouchclaim takes two arguments: \vouchclaim{key}{the prose it vouches for}
 ```
 
-**Budget.** It is stdlib-only and reads a precomputed index, `.vouch/cache/index.json` (keys, pending keys, defined keys, and the sorted number index the lint matches against), which `build` writes. A tiny entry point checks the payload for `.tex` before importing anything else. The package's public API loads lazily, and CLI processes don't start function tracking.
+**Budget.** It is stdlib-only and reads a precomputed index, `.vouch/cache/index.json` (keys, pending keys, defined keys, the sorted number index the lint matches against, and each run's record hash and keys), which `build` writes. A run recorded after that build is folded in: a record newer than the index whose hash the index does not hold replaces the keys and numbers the index had from its run, and a run whose record is gone drops out. Only those records are read. A tiny entry point checks the payload for `.tex` before importing anything else. The package's public API loads lazily, and CLI processes don't start function tracking.
 
 Measured on a Windows machine whose bare `python -c pass` takes 115 ms:
 - about 175 ms for a non-tex edit

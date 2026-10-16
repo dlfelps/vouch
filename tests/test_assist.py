@@ -340,6 +340,42 @@ def test_edit_hook_catches_slips_in_the_same_turn(proj):
     assert run_edit_hook("not json") == (0, "")
 
 
+def test_edit_hook_knows_the_runs_recorded_since_the_last_build(proj):
+    # The hook reads the index `vouch build` wrote. An experiment run after that build
+    # records keys the paper can already cite, which `vouch check` finds in the run
+    # store; the hook used to call them unknown, "no run ... provides it", for a run
+    # that did, and to say their values match no recorded value.
+    from vouch.edithook import run_edit_hook
+    paper(proj, "x")
+    proj.write("later.py", '''
+        import vouch
+        vouch.record("cifar.n_val", 4321, desc="validation images")
+        vouch.table("ablation", [["a", 0.5], ["b", 0.25]], columns=["id", "drop"], row_key="id")
+    ''')
+    build(Config.load(proj.root))
+    proj.run("later.py", check=True)                       # recorded after the build
+    proj.write("paper/results.tex", "We hold out \\vouch{cifar.n_val} images, and dropping a "
+                                    "costs \\vouch{ablation.a.drop}; 4321 typed. "
+                                    "\\vouch{ablation.c.drop} is not there.\n")
+    code, text = run_edit_hook(_payload(proj.root / "paper/results.tex"))
+    assert code == 2
+    assert "unknown key cifar.n_val" not in text and "unknown key ablation.a.drop" not in text
+    assert "unknown key ablation.c.drop" in text                  # still caught
+    assert "4321 is typed by hand; it is cifar.n_val" in text
+    # a run re-recorded since the build no longer provides the keys it dropped
+    proj.write("later.py", '''
+        import vouch
+        vouch.record("cifar.n_val", 4321, desc="validation images")
+    ''')
+    proj.run("later.py", check=True)
+    code, text = run_edit_hook(_payload(proj.root / "paper/results.tex"))
+    assert "unknown key ablation.a.drop" in text and "unknown key cifar.n_val" not in text
+    # and a deleted run drops out
+    (proj.root / ".vouch" / "runs" / "later.json").unlink()
+    code, text = run_edit_hook(_payload(proj.root / "paper/results.tex"))
+    assert "unknown key cifar.n_val" in text
+
+
 def test_edit_hook_ignores_what_is_not_a_vouch_paper(tmp_path):
     from vouch.edithook import run_edit_hook
     (tmp_path / "x.tex").write_text("93.2\\%", encoding="utf-8")
