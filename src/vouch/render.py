@@ -229,6 +229,8 @@ def render(value: Any, spec: str | None = None, *, unit: str | None = None,
     if isinstance(value, str) or f.type == "s":
         s = tex_escape(str(value))
         return Rendered(s, s)
+    if f.type == "w":
+        return _render_words(value, f, unit, opts)
     if isinstance(value, Stat):
         return _render_stat(value, f, unit, opts)
     if isinstance(value, tuple):
@@ -236,6 +238,27 @@ def render(value: Any, spec: str | None = None, *, unit: str | None = None,
     if isinstance(value, (int, float)):
         return _render_scalar(value, f, unit, opts)
     raise RenderError(f"cannot render a {type(value).__name__}")
+
+
+_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
+
+
+def _render_words(value: Any, f: Fmt, unit: str | None, opts: Options) -> Rendered:
+    """``w``: a whole number from zero to ten as a word, a larger one as ``d`` prints it.
+
+    Prose spells small counts -- two qubits, four gates. With no format for it, a paper
+    either typed the word, an untracked number the lint cannot see, or printed digits
+    where a style guide wants a word.
+    """
+    if (isinstance(value, Stat) or isinstance(value, tuple)
+            or not isinstance(value, (int, float)) or not math.isfinite(value)
+            or float(value) != int(value)):
+        raise RenderError(f"format w spells whole numbers; {value!r} is not one")
+    whole = int(value)
+    if 0 <= whole < len(_WORDS):
+        utail_l, utail_p = _unit_tail(f, unit)
+        return Rendered(_WORDS[whole] + utail_l, _WORDS[whole] + utail_p)
+    return _render_scalar(whole, dataclasses.replace(f, type="d"), unit, opts)
 
 
 def _render_scalar(x, f: Fmt, unit, opts: Options) -> Rendered:

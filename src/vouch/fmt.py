@@ -6,8 +6,10 @@ inside ``\\csname``, and babel makes ``:;!?`` active in some languages (SPEC §6
 
     fmt     := [sign] [","] ["." precision] [type] {suffix}
     sign    := "+"
-    type    := "f" | "e" | "g" | "d" | "pct" | "s"
+    type    := "f" | "e" | "g" | "d" | "w" | "pct" | "s"
     suffix  := "x" | "u" | "ci" | "to"
+
+"w" spells a whole number from zero to ten as a word and prints a larger one as "d" does.
 
 Rendering to LaTeX lives in M2; this module only parses and normalizes, which is
 all recording needs.
@@ -19,11 +21,11 @@ import dataclasses
 import re
 from typing import Mapping
 
-TYPES = ("pct", "f", "e", "g", "d", "s")
+TYPES = ("pct", "f", "e", "g", "d", "w", "s")
 SUFFIXES = ("x", "u", "ci", "to")
 
 _FMT_RE = re.compile(
-    r"(?P<sign>\+)?(?P<group>,)?(?:\.(?P<prec>\d{1,2}))?(?P<type>pct|f|e|g|d|s)?"
+    r"(?P<sign>\+)?(?P<group>,)?(?:\.(?P<prec>\d{1,2}))?(?P<type>pct|f|e|g|d|w|s)?"
     r"(?P<suffixes>(?:x|u|ci|to)*)")
 _NAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
 

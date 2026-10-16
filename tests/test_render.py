@@ -1,6 +1,6 @@
 import pytest
 
-from vouch.render import Options, render, tex_escape
+from vouch.render import Options, RenderError, render, tex_escape
 from vouch.values import Stat
 
 S = Stat(0.93214, 0.0041, 5)
@@ -96,3 +96,25 @@ def test_tex_escape():
     assert tex_escape("a_b & 50% #1 {x} ~ ^ \\") == \
         r"a\_b \& 50\% \#1 \{x\} \textasciitilde{} \textasciicircum{} \textbackslash{}"
     assert render("resnet_50", "s").latex == r"resnet\_50"
+
+
+@pytest.mark.parametrize("value,spec,latex", [
+    (2, "w", "two"),
+    (0, "w", "zero"),
+    (10, "w", "ten"),
+    (4.0, "w", "four"),               # a whole float, as a derived count can be
+    (11, "w", "11"),                  # past ten, digits
+    (37920, ",w", "37{,}920"),        # with grouping
+])
+def test_small_whole_numbers_can_be_spelled(value, spec, latex):
+    # Prose spells small counts ("two qubits", "four gates"). vouch had no format for
+    # it, so a paper either typed the word -- an untracked number -- or printed digits.
+    assert render(value, spec).latex == latex
+    assert render(value, spec).plain == latex.replace("{,}", ",")
+
+
+def test_words_are_for_whole_numbers():
+    with pytest.raises(RenderError):
+        render(2.5, "w")
+    with pytest.raises(RenderError):
+        render(S, "w")

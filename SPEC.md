@@ -806,7 +806,7 @@ The grammar is therefore ASCII-only and uses letters for those symbols:
 fmt     := [sign] [","] ["." precision] [type] {suffix}
 sign    := "+"                               always show the sign
 ","                                          thousands grouping, rendered {,}
-type    := "f" | "e" | "g" | "d" | "pct" | "s"
+type    := "f" | "e" | "g" | "d" | "w" | "pct" | "s"   w: zero to ten as words
 suffix  := "x"      append \times           (multipliers: 1.62\times)
          | "u"      append the unit          (12.3\,ms)
          | "ci"     Stat as mean [lo, hi]    (95% CI)
@@ -834,6 +834,8 @@ Named formats from `[format] named` can be used anywhere a format can: `\vouch[p
 | `(56, 32)` | `dto` | `\ensuremath{56 \to 32}` |
 | `12.34` + `unit="ms"` | `.1fu` | `12.3\,ms` (siunitx mode: `\qty{12.3}{\ms}`) |
 | `"ResNet-50"` | `s` | `ResNet-50` (LaTeX-escaped) |
+| `2` | `w` | `two` (zero to ten as words, for prose such as "two qubits") |
+| `37920` | `,w` | `37{,}920` (past ten, as `,d`) |
 
 ### 6.3 Rules
 
