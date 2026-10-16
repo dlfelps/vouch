@@ -185,6 +185,22 @@ def cmd_init(args) -> int:
     return EXIT_OK
 
 
+def _ask(prompt: str) -> str | None:
+    """A line typed at a prompt, or None when stdin is at its end.
+
+    isatty() is not enough to know a person is there: on Windows a stdin redirected
+    from NUL (``< /dev/null``, an agent's shell) reports itself a terminal, and the
+    prompts of ``init --agents`` and ``review`` died on its first read with an EOFError
+    traceback. Every caller treats None as the cautious answer: write nothing,
+    acknowledge nothing.
+    """
+    try:
+        return input(prompt)
+    except EOFError:
+        print()
+        return None
+
+
 def _init_agents(root: Path, args) -> int:
     from . import agents
     parts = [p.strip() for p in (args.agents or ",".join(agents.PARTS)).split(",") if p.strip()]
@@ -201,7 +217,12 @@ def _init_agents(root: Path, args) -> int:
         if not sys.stdin.isatty():
             C.out("  agents: nothing written; re-run with --yes to write the files above")
             return EXIT_OK
-        if input("write these files? [y/N] ").strip().lower() not in ("y", "yes"):
+        answer = _ask("write these files? [y/N] ")
+        if answer is None:
+            C.out("  agents: nothing written; no answer on stdin, re-run with --yes to write "
+                  "the files above")
+            return EXIT_OK
+        if answer.strip().lower() not in ("y", "yes"):
             C.out("  agents: nothing written")
             return EXIT_OK
     agents.write(changes)
@@ -1299,7 +1320,8 @@ def cmd_review(args) -> int:
         C.out(f"\n[{n}/{len(pending)}]")
         print_changes([c], heading=False)
         while True:
-            ans = input("  [a]ck  [s]kip  [o]pen  [q]uit > ").strip().lower()[:1]
+            got = _ask("  [a]ck  [s]kip  [o]pen  [q]uit > ")
+            ans = "q" if got is None else got.strip().lower()[:1]        # end of input: quit
             if ans == "o" and c.citations:
                 _open_editor(cfg.root, c.citations[0].file, c.citations[0].line)
                 continue
@@ -1309,9 +1331,13 @@ def cmd_review(args) -> int:
         elif ans == "q":
             break
     if chosen:
-        why = input("  why (recorded with the acknowledgment) > ").strip() or "reviewed with vouch review"
-        ch.acknowledge(cfg, ctx.baseline, chosen, why)
-        build(cfg, notify=False)
+        why = _ask("  why (recorded with the acknowledgment) > ")
+        if why is None:                       # no answer: acknowledging stays a person's act
+            C.out("  nothing acknowledged: no answer on stdin")
+            chosen = []
+        else:
+            ch.acknowledge(cfg, ctx.baseline, chosen, why.strip() or "reviewed with vouch review")
+            build(cfg, notify=False)
     C.out(f"{len(chosen)} acknowledged, {len(pending) - len(chosen)} still pending")
     return EXIT_OK
 

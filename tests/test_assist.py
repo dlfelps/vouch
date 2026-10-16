@@ -413,6 +413,39 @@ def test_stop_hook_blocks_until_check_passes(proj):
     assert run_stop_hook("{}", proj.root) == (0, "")
 
 
+class _NulStdin:
+    """stdin redirected from NUL on Windows: isatty() is True, and every read is EOF."""
+
+    def isatty(self):
+        return True
+
+    def readline(self, *_):
+        return ""
+
+    def read(self, *_):
+        return ""
+
+
+def test_a_prompt_that_reads_end_of_file_writes_nothing(proj, capsys, monkeypatch):
+    # On Windows a stdin redirected from NUL (`< /dev/null`, or an agent's shell) says it
+    # is a terminal, so `init --agents` and `review` went on to prompt and crashed with
+    # an EOFError traceback. End of file is now an answer: no.
+    paper(proj, "\\vouch{evaluate.cifar.resnet.acc}")
+    build(Config.load(proj.root))
+    monkeypatch.setattr(sys, "stdin", _NulStdin())
+    assert cli.main(["init", "--agents"]) == 0
+    out = capsys.readouterr().out
+    assert "nothing written" in out and "--yes" in out
+    assert not (proj.root / ".claude/skills/vouch/SKILL.md").exists()
+    proj.write("exp.py", EXP.replace('"resnet": 0.93', '"resnet": 0.80'))
+    proj.run("exp.py", check=True)
+    build(Config.load(proj.root))
+    before = (proj.root / ".vouch/acknowledged.json").read_text(encoding="utf-8")
+    assert cli.main(["review"]) == 0
+    assert "0 acknowledged" in capsys.readouterr().out
+    assert (proj.root / ".vouch/acknowledged.json").read_text(encoding="utf-8") == before
+
+
 def test_the_documented_rules_block_is_the_one_init_writes():
     # docs/llm/claude-code.md and SPEC 13.5 quote the rules block; both had drifted
     # from agents.RULES (a reworded bullet, another order), so a reader saw rules no

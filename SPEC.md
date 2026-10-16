@@ -1292,7 +1292,7 @@ Every command accepts `--root DIR`. These commands also accept `--json`, which e
 | `vouch todo` | Pending `expect()` keys with their producer commands. |
 | `vouch changes [--json\|--md FILE]` | Pending changes to cited values, with the citing sentences. |
 | `vouch diff [REV [REV2]] [--key P]… [--cited] [--all] [--json\|--md FILE]` | Every recorded value, param, claim, table cell and figure added, removed or changed between a git revision (default `HEAD`) and the working tree, or two revisions (§9.5). |
-| `vouch review` | Interactive review of pending changes. |
+| `vouch review` | Interactive review of pending changes. An end of input quits, and acknowledges nothing it has not been given a reason for. |
 | `vouch ack KEY… \| --all \| --run RUN [--why TEXT]` | Acknowledge changes. A KEY may be a glob, or a table (every changed cell of it). |
 | `vouch accept RUN --why TEXT` | Record a reviewed staleness (§8.5). |
 | `vouch export --csv PATH [--all] [--json]` | Provenance table on demand. |
@@ -1604,7 +1604,7 @@ Measured on a Windows machine whose bare `python -c pass` takes 115 ms:
 On Linux and macOS, where interpreter start is a fraction of that, it is well under 200 ms.
 
 **`vouch init --agents [skill,rules,hook] [--yes] [--stop-gate]`:**
-- It prints a unified diff of every file it would write. Without `--yes` it writes only after a yes at a terminal, and never when run non-interactively.
+- It prints a unified diff of every file it would write. Without `--yes` it writes only after a yes at a terminal, and never when run non-interactively; an end of input at the prompt (a stdin redirected from `/dev/null`, which Windows reports as a terminal) is a no.
 - The rules block replaces an existing `<!-- vouch -->` block in place.
 - The hook merges into existing settings and never duplicates itself. The agent runs it later from its own shell, outside the environment `vouch init` ran in, so the command is chosen for that shell, in this order:
   1. a uv project whose `uv.lock` installs `vouch-paper`: `uv run --no-sync vouch hook claude`;

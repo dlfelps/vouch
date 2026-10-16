@@ -91,7 +91,7 @@ and their numbers are matched without another `vouch build`.
 
 ## `vouch init --agents [skill,rules,hook] [--yes] [--stop-gate]`
 
-- Prints a unified diff of every file it would write. Without `--yes` it writes only after a yes at a terminal, and never when run non-interactively.
+- Prints a unified diff of every file it would write. Without `--yes` it writes only after a yes at a terminal, and never when run non-interactively; an end of input at the prompt (a stdin redirected from `/dev/null`, which Windows reports as a terminal) is a no.
 - The rules block replaces an existing `<!-- vouch -->` block in place.
 - The hook merges into existing settings and never duplicates itself.
 - `--stop-gate` also installs a `Stop` hook, `vouch hook stop`. It runs `vouch check --strict` and exits 2 with the issues, so an agent can't finish while the gate fails. It is off by default, because blocking an agent from finishing is intrusive.
