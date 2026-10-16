@@ -349,7 +349,7 @@ def cmd_check(args) -> int:
     from .check import run_check
     try:
         cfg = _config(args)
-        rep = run_check(cfg, strict=args.strict, check_env=not args.no_env)
+        rep = run_check(cfg, strict=args.strict, check_env=not args.no_env, paper=args.paper)
     except (BuildError, ConfigError, FileNotFoundError) as exc:
         if args.json:
             print(_envelope("check", False, error=str(exc), issues=[]))
@@ -1380,6 +1380,8 @@ def make_parser() -> argparse.ArgumentParser:
     sp.add_argument("--verbose", action="store_true", help="also print informational notes")
     sp.add_argument("--json", action="store_true", help="the vouch/1 JSON envelope")
     sp.add_argument("--no-env", action="store_true", help="skip the package-version drift check")
+    sp.add_argument("--paper", metavar="FILE",
+                    help="check only this paper (main .tex), if vouch.toml lists several")
 
     sp = add("status", cmd_status, "freshness of every run, with re-run commands")
     sp.add_argument("--json", action="store_true")

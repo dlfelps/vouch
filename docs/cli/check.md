@@ -16,6 +16,7 @@ $ vouch check [--strict] [--quiet] [--verbose] [--json] [--no-env] [--paper FILE
 | `--verbose` | also print informational notes |
 | `--json` | the `vouch/1` JSON envelope |
 | `--no-env` | skip the package-version drift check |
+| `--paper FILE` | check only this paper, when `vouch.toml` lists several; FILE is its `main`, relative to the project root or the working directory. A file no `[[paper]]` lists is an error (exit 2). |
 
 Exit codes: `0` pass, `1` fail, `2` could not check.
 

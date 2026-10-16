@@ -219,3 +219,27 @@ def test_hook_install(example, capsys):
     assert cli.main(["hook", "install", "--root", str(example)]) == 2
     assert "already exists and is not vouch's" in capsys.readouterr().err
     assert cli.main(["hook", "install", "--root", str(example), "--force"]) == 0
+
+
+def test_check_one_paper_of_several(project, capsys):
+    # SPEC §12 and docs/cli/check.md list `vouch check --paper FILE`; the parser had no
+    # such option, so a project with several papers could not gate one of them.
+    project.write("vouch.toml", '[[paper]]\nmain = "paper/a.tex"\n\n'
+                  '[[paper]]\nmain = "paper/b.tex"\n')
+    project.write("exp.py", 'import vouch\nvouch.record("m.acc", 0.9, desc="accuracy")\n')
+    project.run("exp.py", check=True)
+    for name, key in (("a", "m.acc"), ("b", "nope.x")):
+        project.write(f"paper/{name}.tex", "\\documentclass{article}\n\\usepackage{vouch}\n"
+                      "\\begin{document}\n\\vouch{" + key + "}\n\\end{document}\n")
+    build(Config.load(project.root), notify=False)
+    code, rep = check_json(project.root, capsys)
+    assert code == 1 and rep["summary"]["papers"] == ["paper/a.tex", "paper/b.tex"]
+    code, rep = check_json(project.root, capsys, "--paper", "paper/a.tex")
+    assert code == 0, rep["issues"]
+    assert rep["summary"]["papers"] == ["paper/a.tex"]
+    code, rep = check_json(project.root, capsys, "--paper", "paper/b.tex")
+    assert code == 1 and rep["summary"]["papers"] == ["paper/b.tex"]
+    capsys.readouterr()
+    assert cli.main(["check", "--root", str(project.root), "--no-env",
+                     "--paper", "paper/c.tex"]) == 2              # not a paper of this project
+    assert "paper/c.tex" in capsys.readouterr().err

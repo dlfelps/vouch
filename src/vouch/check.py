@@ -20,7 +20,7 @@ import dataclasses
 from pathlib import Path
 
 from . import changes as ch
-from .build import BuildError, Context, comparable, plan
+from .build import BuildError, Context, comparable, plan, select_paper
 from .config import Config
 from .index import source_runs
 from .issues import Issue, apply_severity, ordered
@@ -273,8 +273,13 @@ def collect(ctx: Context) -> list[Issue]:
     return issues
 
 
-def run_check(cfg: Config, *, strict: bool = False, check_env: bool = True) -> CheckReport:
-    ctx = plan(cfg, check_env=check_env)
+def run_check(cfg: Config, *, strict: bool = False, check_env: bool = True,
+              paper: str | None = None) -> CheckReport:
+    # `paper` restricts the gate to one [[paper]] (`vouch check --paper FILE`, SPEC §12).
+    # The option was specified and documented but missing from the parser, so a project
+    # with several papers could only be gated as a whole.
+    only = None if paper is None else [select_paper(cfg, paper)]
+    ctx = plan(cfg, check_env=check_env, only=only)
     issues = apply_severity(collect(ctx), cfg.get("check", "severity", {}), strict)
     cited = _cited(ctx)
     summary = {

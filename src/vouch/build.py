@@ -544,6 +544,21 @@ def papers(cfg: Config) -> list[dict]:
     return got
 
 
+def select_paper(cfg: Config, main: str) -> dict:
+    """The [[paper]] whose main file is ``main``, given relative to the project root, to
+    the working directory, or absolute. A gate over a file the project does not list
+    would check something nobody configured, so that is an error."""
+    listed = papers(cfg)
+    candidates = {Path(main).as_posix()}
+    for base in (cfg.root, Path.cwd()):
+        candidates.add(cfg.rel(Path(main) if Path(main).is_absolute() else base / main))
+    for p in listed:
+        if Path(p["main"]).as_posix() in candidates:
+            return p
+    raise BuildError(f"{main} is not a paper of this project; vouch.toml lists "
+                     + ", ".join(p["main"] for p in listed))
+
+
 def plan(cfg: Config, *, check_env: bool = True, only: list[dict] | None = None,
          evaluate: bool = False, need_paper: bool = True) -> Context:
     """Everything a build would write, and what is wrong. ``evaluate`` re-runs the
