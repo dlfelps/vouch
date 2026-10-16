@@ -1433,7 +1433,7 @@ Written by every build and committed, the catalog lets an agent see everything c
 ```markdown
 # vouch catalog — 38 values · 3 claims · 1 table · 1 pending · 2 changed
 Cite: \vouch{key} · \vouch[fmt]{key} · \vouchclaim{key}{text} · \vouchtable{key}
-Formats: .1f .2e ,d .1pct x=\times u=unit · Stat → mean \pm std · subfields .mean .std .n .ci95
+Formats: .1f .2e ,d .1pct .2fx (x = \times, u = unit) · w spells zero to ten as words · a Stat renders mean \pm std · subfields .mean .std .n .ci95 .min .max · table cells <table>.<row>.<column>
 Find: vouch search "words" · Snippet: vouch cite KEY · Arithmetic/claims: vouch compare A B · Missing: vouch.expect(...)
 Never type a number. Never compute with numbers in prose.
 

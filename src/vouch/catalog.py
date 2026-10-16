@@ -20,10 +20,13 @@ from .render import Options, RenderError, render
 from .values import natural_key
 
 SPLIT_AT = 300
+# The header is the agent's format reference. It once left out "w", so a count meant
+# as a word ("two qubits") was typed by hand, untracked, though \vouch[w]{key} prints it.
 HEADER = [
     "Cite: \\vouch{key} · \\vouch[fmt]{key} · \\vouchclaim{key}{text} · \\vouchtable{key}",
-    "Formats: .1f .2e ,d .1pct (x = \\times, u = unit) · a Stat renders mean \\pm std · "
-    "subfields .mean .std .n .ci95 .min .max · table cells <table>.<row>.<column>",
+    "Formats: .1f .2e ,d .1pct .2fx (x = \\times, u = unit) · w spells zero to ten as "
+    "words · a Stat renders mean \\pm std · subfields .mean .std .n .ci95 .min .max · "
+    "table cells <table>.<row>.<column>",
     "Find: vouch search \"words\" · Snippet: vouch cite KEY · Arithmetic and claims: "
     "vouch compare A B · Missing: vouch.expect(...) · Browse: vouch explore",
     "Never type a number. Never compute with numbers in prose.",

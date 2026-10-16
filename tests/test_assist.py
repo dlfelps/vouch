@@ -139,6 +139,16 @@ def test_catalog_lists_everything_citable(example):
     assert not any(ln.startswith("toy.centroid.acc.mean") for ln in lines)   # subfields: header
 
 
+def test_catalog_header_names_the_word_format(example):
+    # The header is the agent's format reference, read before anything else. It listed
+    # .1f .2e ,d .1pct and not w, so an agent writing "two qubits" typed the word, an
+    # untracked number, though \vouch[w]{key} prints it.
+    build(Config.load(example))
+    header = (example / ".vouch/CATALOG.md").read_text(encoding="utf-8").split("\n")[:6]
+    formats = next(ln for ln in header if ln.startswith("Formats:"))
+    assert " w " in formats and "words" in formats
+
+
 def test_big_catalogs_split_by_prefix(proj):
     rows = ", ".join(f'"k{i}": {i}' for i in range(310))
     proj.write("many.py", "import vouch\nvouch.record_all({" + rows + "}, prefix='big', desc='d')\n")
