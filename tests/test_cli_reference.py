@@ -50,3 +50,24 @@ def test_the_json_claim_names_exactly_the_commands_that_take_json():
         assert "Every command accepts `--json`" not in text or with_json == set(subs)
         named = json_commands_named(text)
         assert named == with_json, named ^ with_json if named else "no --json sentence"
+
+
+# Phrases that begin with "vouch" in backticks but are messages, not commands.
+NOT_COMMANDS = {"was"}
+
+
+def test_the_docs_name_only_commands_that_exist():
+    # SPEC section 4 said @vouch.track is "what makes `vouch recompute` possible", as if
+    # the command existed; it is a v2 idea (section 20). A mention of a planned command
+    # has to say so on its line, by pointing at section 20.
+    subs = set(commands())
+    files = [ROOT / "SPEC.md", ROOT / "README.md", *sorted((ROOT / "docs").rglob("*.md"))]
+    for path in files:
+        text = path.read_text(encoding="utf-8")
+        if path.name == "SPEC.md":
+            text = text[:text.index("## 20. Open questions")]
+        for i, line in enumerate(text.splitlines(), 1):
+            for name in re.findall(r"`vouch ([a-z][a-z-]*)", line):
+                if name in subs or name in NOT_COMMANDS or "§20" in line:
+                    continue
+                raise AssertionError(f"{path.name}:{i} names `vouch {name}`, which does not exist")

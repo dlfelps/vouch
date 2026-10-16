@@ -309,7 +309,7 @@ There are three ways to record, and they combine freely in one run:
 
 | Way | Code change | Use it when |
 |---|---|---|
-| `@vouch.track` on the function that computes the numbers (§4.3a) | one decorator | **the default.** Each value records the call that produced it (function, every argument, call site), which is the strongest provenance vouch has and what makes `vouch recompute` possible |
+| `@vouch.track` on the function that computes the numbers (§4.3a) | one decorator | **the default.** Each value records the call that produced it (function, every argument, call site), which is the strongest provenance vouch has, and what a planned `vouch recompute` would need (§20) |
 | `[[track]]` in `vouch.toml` + `python -m vouch.exec` (§4.3b) | none | the code can't or shouldn't import vouch: someone else's script, a frozen baseline, a quick look before committing to vouch |
 | `vouch.record` / `vouch.record_all` (§4.1–4.3) | one line per value or per dict | a number that isn't a function's return value: an aggregate computed inline, a value read from a results file, a param |
 
@@ -928,7 +928,7 @@ In every mode, a run's state (`fresh`, `STALE`, …) comes from `\vouch@state` l
 
 ### 7.5 Changed-value highlighting
 
-A cited value whose change is pending (§9) is rendered in a highlight color (`\colorbox` or text color, configurable). Skimming the PDF then shows exactly which sentences to re-read. Highlighting is off under `final`.
+A cited value whose change is pending (§9) is rendered in the text color `vouchchanged` (an orange; redefine it with `\definecolor`). Skimming the PDF then shows exactly which sentences to re-read. Highlighting is off under `final`.
 
 ### 7.6 The values file
 
@@ -1700,8 +1700,8 @@ $ vouch run cifar_vit_jl --dep src/ --dep configs/vit.yaml --input data/cifar10.
 
 4. **On exit 0**, vouch hashes `--out` paths and declared artifacts, and writes a run record with `code.granularity = "deps"`. On a non-zero exit it writes nothing and passes the exit code through.
 5. **Python commands.** When the command is `python script.py …`, or `uv run [options] python script.py …`, vouch runs the script as `python -m vouch.exec script.py …` (with vouch on `PYTHONPATH`); under uv, uv's own options are left in place and the interpreter is the first one followed by a `.py` file. The record then carries that interpreter's version and packages. A program path relative to the working directory (`.venv/Scripts/python.exe`) is resolved before it is started, against the working directory and then the project root, since Windows does not resolve one with forward slashes; the recorded command keeps it as typed. The script gets function-level tracking with no code changes, and its own `vouch.record()` and `@vouch.track` values land in this run: the child records under `$VOUCH_RUN`, and the wrapper merges in the declared deps, inputs, outputs and any `$VOUCH_VALUES`. If the command fails, a record the child wrote anyway (a script that ends in `sys.exit(3)` after recording) is rolled back, so a failed run never replaces a good one.
-7. **The recorded command** is the whole `vouch run …` invocation, so the `fix:` line for a stale run re-runs it with the same deps and outputs.
 6. **Existing results files.** `vouch run … --values results.json` reads values from a file the program already writes, instead of `$VOUCH_VALUES`. It accepts the same shapes as `record_all` (nested JSON, JSONL or CSV, plus `--prefix`, `--row-key` and `--stats`). A program that already dumps its metrics needs no changes at all.
+7. **The recorded command** is the whole `vouch run …` invocation, so the `fix:` line for a stale run re-runs it with the same deps and outputs.
 
 ### 14.1 Registering results that already exist: `vouch import`
 
