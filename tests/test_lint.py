@@ -87,6 +87,24 @@ def test_drawing_coordinates_are_not_results(project):
     assert literals(project, body) == [r"93.2\%"]
 
 
+def test_an_inline_tikz_is_a_drawing(project):
+    # An inline \tikz, a legend's sample line inside a node or a marker in a caption, is a
+    # drawing too: the lint flagged its coordinate (0.5,0) as a typed number and suggested
+    # citing an unrelated recorded value in its place, because the environment's masking
+    # stops at a node's { } text and \tikz outside an environment was never masked. Both
+    # forms, the path ended by ";" and the braced one, are masked; a number in prose after
+    # them, or in the node text of a braced one, is still flagged.
+    body = r"""
+\begin{tikzpicture}
+  \node[align=left] at (6.0,3.7) {\tikz\draw[line width=1.4pt] (0,0) -- (0.5,0); bad words};
+\end{tikzpicture}
+A marker \tikz[baseline=-0.5ex]\fill (0,0) circle (2.5pt); and a sample
+\tikz{\draw[dash pattern=on 3pt off 2pt] (0,0) -- (0.75,0) node[right] {after 38 hours};}
+of a line. It took 17 seeds.
+"""
+    assert sorted(literals(project, body)) == ["17", "38"]
+
+
 def test_a_file_read_in_the_preamble_is_not_prose(project):
     """A file \\input before \\begin{document} holds definitions. The lint used to skip
     the main file's preamble and lint every input file whole, so a generated table of

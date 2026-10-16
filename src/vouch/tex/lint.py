@@ -149,27 +149,73 @@ def mask(src: str, short: bool) -> str:
 # typed into a label is still flagged, and a \vouch inside a figure is still a citation.
 _DRAWINGS = re.compile(r"\\begin\{(tikzpicture|pgfpicture|picture|circuitikz|axis)\}"
                        r"(.*?)\\end\{\1\}", re.S)
+# An inline \tikz is a drawing too. The lint flagged the coordinate of a legend's sample
+# line, \tikz\draw (0,0) -- (0.5,0); inside a node, as a typed number and suggested citing
+# an unrelated value: the environment's masking stops at a node's { } text, and \tikz
+# outside an environment was never masked. Its options, and the ( ) and [ ] groups of its
+# path, ended by ";" or held in one { } group, are blanked like an environment's body.
+_INLINE_TIKZ = re.compile(r"\\tikz(?![A-Za-z@])")
 
 
 def _mask_drawings(src: str, chars: list[str]) -> None:
     for m in _DRAWINGS.finditer(src):
-        depth, i, end = 0, m.start(2), m.end(2)
-        while i < end:
-            ch = src[i]
-            if ch == "\\":
-                i += 2
+        _mask_coordinates(src, chars, m.start(2), m.end(2))
+    for m in _INLINE_TIKZ.finditer(src):
+        i = _skip_ws(src, m.end())
+        if i < len(src) and src[i] == "[":
+            got = balanced(src, i, "[", "]")
+            if got is None:
                 continue
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth = max(depth - 1, 0)
-            elif depth == 0 and ch in "([":
-                got = balanced(src, i, ch, ")" if ch == "(" else "]")
-                if got is not None and got[1] <= end:
-                    _blank(chars, i, got[1])
-                    i = got[1]
-                    continue
-            i += 1
+            _blank(chars, i, got[1])
+            i = _skip_ws(src, got[1])
+        if i < len(src) and src[i] == "{":
+            got = balanced(src, i)
+            if got is not None:
+                _mask_coordinates(src, chars, i + 1, got[1] - 1)
+        else:
+            _mask_coordinates(src, chars, i, _path_end(src, i))
+
+
+def _path_end(src: str, i: int) -> int:
+    """The index just after the ";" that ends a TikZ path starting at ``i``, braces kept
+    whole; the end of ``src`` when there is none."""
+    depth = 0
+    while i < len(src):
+        ch = src[i]
+        if ch == "\\":
+            i += 2
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            if depth == 0:
+                return i
+            depth -= 1
+        elif ch == ";" and depth == 0:
+            return i + 1
+        i += 1
+    return i
+
+
+def _mask_coordinates(src: str, chars: list[str], start: int, end: int) -> None:
+    """Blank the ( ) and [ ] groups of a drawing's body outside its { } groups."""
+    depth, i = 0, start
+    while i < end:
+        ch = src[i]
+        if ch == "\\":
+            i += 2
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth = max(depth - 1, 0)
+        elif depth == 0 and ch in "([":
+            got = balanced(src, i, ch, ")" if ch == "(" else "]")
+            if got is not None and got[1] <= end:
+                _blank(chars, i, got[1])
+                i = got[1]
+                continue
+        i += 1
 
 
 def _skip_ws(src: str, i: int) -> int:
