@@ -413,6 +413,21 @@ def test_stop_hook_blocks_until_check_passes(proj):
     assert run_stop_hook("{}", proj.root) == (0, "")
 
 
+def test_the_documented_rules_block_is_the_one_init_writes():
+    # docs/llm/claude-code.md and SPEC 13.5 quote the rules block; both had drifted
+    # from agents.RULES (a reworded bullet, another order), so a reader saw rules no
+    # project gets.
+    import re
+    from pathlib import Path
+
+    from vouch.agents import RULES
+    root = Path(__file__).resolve().parents[1]
+    for rel in ("docs/llm/claude-code.md", "SPEC.md"):
+        text = (root / rel).read_text(encoding="utf-8")
+        block = re.search(r"<!-- vouch -->\n.*?<!-- /vouch -->", text, re.S)
+        assert block and block.group(0) == RULES.strip(), rel
+
+
 def test_init_agents_shows_then_writes(proj, capsys, monkeypatch):
     monkeypatch.setattr("vouch.agents.shutil.which", lambda name: "vouch")
     proj.write("CLAUDE.md", "# Project\n\nOur own notes.\n")

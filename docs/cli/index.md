@@ -16,6 +16,7 @@ them and falls back to ASCII otherwise.
 | [`vouch ls`](inspect.md#vouch-ls) | Keys with rendered value, description, run, freshness and citation count. |
 | [`vouch trace`](inspect.md#vouch-trace) | The full provenance chain for a key, figure, script, or file:line. |
 | [`vouch explore`](inspect.md#vouch-explore) | Browse every recorded value in a local web page; copy the LaTeX that cites it. |
+| [`vouch document`](inspect.md#vouch-document) | A script's docstrings beside the real values it produced; needs no paper. |
 | [`vouch search`](inspect.md#vouch-search) | Ranked lookup by words. |
 | [`vouch cite`](inspect.md#vouch-cite) | The snippet to paste, plus its rendering. |
 | [`vouch compare`](author.md#vouch-compare) | Arithmetic between two values, plus ready-to-paste `derive`/`claim` code. |

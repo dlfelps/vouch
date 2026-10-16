@@ -21,15 +21,17 @@ and a paper draft, taken step by step to a PDF whose values, table and figure
 all come from the code.
 
 ```console
-$ pip install -e .          # from a clone; Python ≥ 3.10, no dependencies
+$ pip install vouch-paper   # Python ≥ 3.10, no dependencies; the command is `vouch`
 $ vouch init                # finds your paper, writes vouch.toml, copies vouch.sty
 ```
 
-The base install is everything, the MCP server included, with no dependencies
-(only `tomli` on Python 3.10). Extras: `.[pandas]` to record pandas DataFrames;
-`.[mcp]` installs nothing more (`vouch mcp` needs nothing); `.[test]` for the test
-suite, which includes the official MCP SDK to test `vouch mcp` against, and
-matplotlib for the tutorial.
+The distribution is `vouch-paper` on PyPI; the package and the command are `vouch`.
+For the unreleased main branch, `pip install -e .` from a clone. The base install is
+everything, the MCP server included, with no dependencies (only `tomli` on Python
+3.10). Extras: `vouch-paper[pandas]` to record pandas DataFrames; `[mcp]` installs
+nothing more (`vouch mcp` needs nothing); `[test]` for the test suite, which includes
+the official MCP SDK to test `vouch mcp` against, and matplotlib for the tutorial. In a
+uv project, `uv add --dev vouch-paper` and run it as `uv run vouch ...`.
 
 ## 1. Record
 
@@ -190,8 +192,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install -e path/to/vouch     # wherever vouch comes from
-      - run: vouch check --strict
+      - run: pip install vouch-paper
+      - run: vouch check --strict          # at submission; while drafting, plain `vouch check`
 ```
 
 ## With Claude Code (or another agent)
@@ -204,8 +206,13 @@ This installs a skill (`.claude/skills/vouch/SKILL.md`), which teaches the agent
 record, find, cite, compare and wait for results; a short rules block in `CLAUDE.md`;
 and a hook that checks each `.tex` file the agent edits. A typed number, a mistyped
 key or a broken macro goes straight back to the agent in the same turn, with the
-fix. `--stop-gate` also stops the agent from finishing while `vouch check --strict`
-fails.
+fix; keys from runs recorded since the last build count at once. `--stop-gate` also
+stops the agent from finishing while `vouch check --strict` fails.
+
+The moves that work in practice (a run per configuration, evidence recorded as
+claims, tables cited cell by cell, results held to published numbers in
+`vouch_values.py`, new key names when an experiment is redefined) are collected in
+[Patterns for agents](https://dlfelps.github.io/vouch/llm/patterns/).
 
 Any MCP client can use the same lookups as tools (search, get a value, cite,
 compare, pending, changes, check, trace) with `vouch mcp`; `vouch init --agents mcp`
@@ -219,7 +226,7 @@ no tool for it.
 | `vouch init` | set up `vouch.toml`, `.vouch/` and `paper/vouch.sty` |
 | `vouch build` | evaluate `vouch_values.py`, write the generated LaTeX, report changes |
 | `vouch watch [--then CMD]` | rebuild whenever new values are recorded or the paper changes |
-| `vouch check [--strict]` | the gate (exit 0 pass, 1 fail, 2 could not check) |
+| `vouch check [--strict] [--quiet]` | the gate (exit 0 pass, 1 fail, 2 could not check); `--strict` at submission |
 | `vouch explore` | browse every recorded value; copy the LaTeX that cites it |
 | `vouch search` / `vouch cite` | find a key by words / the exact snippet to paste |
 | `vouch compare A B [--write]` | arithmetic and significance between two values, as citable code |
@@ -234,6 +241,7 @@ no tool for it.
 | `vouch sync [--strip]` | write each cited value into a `% vouch:` comment on its line |
 | `vouch export --csv FILE` | the provenance table |
 | `vouch catalog` | rewrite `.vouch/CATALOG.md` |
+| `vouch hook install` | the git pre-commit hook (`vouch check --quiet`) |
 | `vouch init --agents` | set up Claude Code: skill, rules, edit hook |
 | `vouch mcp` | the lookups as MCP tools, over stdio |
 

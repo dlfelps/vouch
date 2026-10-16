@@ -21,7 +21,7 @@ LaTeX distribution with `latexmk`. Everything except the PDF works without
 LaTeX.
 
 ```console
-$ pip install -e path/to/vouch numpy matplotlib
+$ pip install vouch-paper numpy matplotlib    # the tutorial files are in a clone of the repository
 $ cp -r examples/tutorial/start my-paper
 $ cd my-paper
 ```

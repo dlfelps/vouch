@@ -56,8 +56,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install -e path/to/vouch     # wherever vouch comes from
-      - run: vouch check --strict
+      - run: pip install vouch-paper
+      - run: vouch check --strict          # at submission; while drafting, plain `vouch check`
 ```
 
 ## Overleaf

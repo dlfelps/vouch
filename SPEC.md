@@ -1280,8 +1280,8 @@ Every command accepts `--root DIR`. These commands also accept `--json`, which e
 | `vouch init [--paper FILE] [--hook] [--agents]` | Writes `vouch.toml`, detects the main `.tex`, copies `vouch.sty`, adds `.gitignore` entries (`.vouch/cache/`), and prints the `\usepackage` line to add. `--hook` installs the pre-commit hook; `--agents` installs the LLM layer (§13.5). |
 | `vouch build [--no-notify]` | Evaluates `vouch_values.py`, renders the values file, tables (and the provenance CSV if `provenance_csv` is set) and catalog, refreshes annotations if enabled, auto-acknowledges new, `hidden` and `reformatted` changes, and prints the change block (§9.3). |
 | `vouch watch [--interval SEC] [--then CMD] [--no-notify] [--quiet]` | Builds, then rebuilds whenever a run record, `vouch.toml`, a values module or a paper `.tex` changes (stdlib polling; the build's own outputs never trigger it). Prints the values that moved since the previous build. `--then` runs a command (e.g. `latexmk`) after each build that wrote files. Never runs an experiment. |
-| `vouch check [--strict] [--quiet] [--json] [--paper FILE]` | The gate (§11). Read-only. Target: under 1 s. `--quiet` prints only problems, and collapses pending `expect()` values, the planned state of a draft, to one line pointing at `vouch todo`; under `--strict` they are errors and are printed in full. `--paper` gates one `[[paper]]` of several; a file that no `[[paper]]` lists is an error. |
-| `vouch status` | Freshness per run, git-status style, with the exact re-run command and the units that changed. |
+| `vouch check [--strict] [--quiet] [--verbose] [--json] [--no-env] [--paper FILE]` | The gate (§11). Read-only. Target: under 1 s. `--verbose` also prints the informational notes (values nobody cites, runs recorded on a dirty tree, cosmetic code changes); `--no-env` skips the package-version drift check. `--quiet` prints only problems, and collapses pending `expect()` values, the planned state of a draft, to one line pointing at `vouch todo`; under `--strict` they are errors and are printed in full. `--paper` gates one `[[paper]]` of several; a file that no `[[paper]]` lists is an error. |
+| `vouch status [--no-env]` | Freshness per run, git-status style, with the exact re-run command and the units that changed. `--no-env` skips the package-version drift check. |
 | `vouch ls [PATTERN] [--cited\|--uncited] [--all] [--json]` | Keys with rendered value, description, run, freshness and citation count, numbers inside keys in numeric order. A mean ± std's subfields (`.mean`, `.std`, …) are listed only when cited or with `--all`; `--json` always has every key. |
 | `vouch trace KEY \| FIGURE \| SCRIPT \| FILE \| FILE:LINE` | The full chain for a key; for a figure, the run and `savefig` line that produced it, whether the file is still what that run saved, and where the paper includes it; the values a script produces and where they're cited; for any other file a run wrote, imported or read (a results table, a model, a wheel), the run that wrote it, whether it is still what that run wrote, and the runs and derived values that read it; or the values cited on a line of tex. |
 | `vouch explore [--port N] [--open] [--html FILE] [--json]` | Browse every recorded value in a local web page, grouped by script and function, and copy the LaTeX that cites it (§12.2). |
@@ -1300,7 +1300,7 @@ Every command accepts `--root DIR`. These commands also accept `--json`, which e
 | `vouch sync [--strip]` | Refresh or remove source annotations. |
 | `vouch run ID [--dep P]… [--input P]… [--out P]… [--values FILE] -- CMD…` | Record a run of any command (§14). |
 | `vouch import FILE --run ID [--prefix P] [--producer PATH]… [--command TEXT] [--row-key C] [--stats]` | Register every value in an existing results file with one command (§14.1). |
-| `vouch hook install [--strict]` / `vouch hook claude` | Install the git pre-commit hook / the Claude Code hook entry point (§13.5). |
+| `vouch hook install [--strict] [--force]` / `vouch hook claude` / `vouch hook stop` | Install the git pre-commit hook (`--force` replaces an existing one) / the Claude Code edit hook and stop gate (§13.5). |
 | `vouch mcp` | Start the MCP server (optional extra, §13.7). |
 
 ### 12.1 Sample outputs
@@ -1551,9 +1551,9 @@ Each of the three parts is optional, and the command shows a diff before writing
 
 **1. Skill: `.claude/skills/vouch/SKILL.md`.** It loads only when relevant, so it costs no context otherwise. Its description triggers on editing `.tex` in a vouch project, writing experiment code that produces results, or mentions of results, numbers, tables or claims. It has four workflows:
 
-- *Record results in an experiment* (§13.4), including giving the function a real docstring
-- *Write a results paragraph*: search → cite (its `context:` line is the producing function's own docstring, if it has one) → compare → claim → check
-- *Handle changed values*: `vouch changes` → re-read each sentence → fix the text → report suspicious changes → ask before acking
+- *Record results in an experiment* (§13.4): a real docstring on the function, one run per configuration of a sweep, a checked property as a claim recorded with its evidence (`values=`), tables whose cells are keys
+- *Write a results paragraph*: search → cite (its `context:` line is the producing function's own docstring, if it has one; the prose formats `w`, `,d`, `.0pct`, `.2fx`) → compare or define (a definition may read a file or a table, so a result held to a published one is a claim) → claim → check; a definition is added before the sentence that cites it, since the edit hook reports a key nothing defines as unknown
+- *Handle changed values*: `vouch changes` → re-read each sentence → fix the text → report suspicious changes → ask before acking; an experiment redefined rather than re-run gets new key names, so no stale baseline is compared against
 - *Convert an existing paper*: `suggest` → `--apply` → resolve `no-source` with the user
 
 It ends with a command cheat-sheet, including `vouch document` (§12.3).
@@ -1563,11 +1563,11 @@ It ends with a command cheat-sheet, including `vouch document` (§12.3).
 ```markdown
 <!-- vouch -->
 ## Numbers in the paper (vouch)
-- Never type an empirical number into LaTeX. Find it (`vouch search`, `.vouch/CATALOG.md`), then paste `vouch cite KEY`.
-- If it doesn't exist: `record()` it in the experiment, `@vouch.derive` it, or `vouch.expect()` it and tell the user.
+- Never type an empirical number into LaTeX. Find it (`vouch search`, `.vouch/CATALOG.md`), then paste what `vouch cite KEY` prints.
+- If it doesn't exist: record it in the experiment, `@vouch.derive` it, or `vouch.expect()` it and tell the user it is owed.
+- Give a new tracked function a real docstring -- vouch shows it back at lookup time (`vouch cite`, `vouch search`) as a sanity check. If one already exists on a function you're writing about, use it instead of guessing a description.
 - Never compute with numbers in prose (differences, ratios, "2x"): `vouch compare A B --write`, then cite the derived key.
 - Qualitative comparisons ("outperforms", "all seeds") go in `\vouchclaim` backed by a claim.
-- Give a new tracked function a real docstring -- vouch shows it back at lookup time (`vouch cite`, `vouch search`) as a sanity check. If one already exists on a function you're writing about, use it instead of guessing a description.
 - Before finishing: `vouch build` and `vouch check` must pass. Before submitting: `vouch check --strict`, which also fails on pending `vouch.expect()` values -- allowed while results are owed, never replaced by invented numbers.
 - If `vouch changes` lists anything: re-read each cited sentence, fix wrong text, and report SUSPICIOUS changes to the user.
 - Never run `vouch ack` or `vouch accept` without the user's approval. Never edit `.vouch/` or generated files.

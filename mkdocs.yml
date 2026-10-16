@@ -86,5 +86,6 @@ nav:
   - LLM & agents:
       - Overview: llm/index.md
       - Claude Code: llm/claude-code.md
+      - Patterns for agents: llm/patterns.md
       - MCP server: llm/mcp-server.md
   - Examples: examples.md

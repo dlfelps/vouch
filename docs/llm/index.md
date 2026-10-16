@@ -77,14 +77,21 @@ number.
 
 ## While writing experiment code
 
-- keys follow `<dataset>.<model>.<metric>`; one run id per configuration
+- keys follow `<dataset>.<model>.<metric>`; one run id per configuration (`with vouch.run(id, params=…)`), so a long sweep keeps what it finished
 - always a `desc`, and `better=` for any metric
 - multi-seed results use `Stat.of(per_seed)` (or `record_all(..., stats=True)`), never a hand-computed mean
 - prefer one `record_all(metrics, prefix=…)` at the end of an experiment over many scattered `record()` calls
-- data goes through `run.input()`, outputs through `run.artifact()`; figures are saved inside the run
+- a property the experiment checks is a `vouch.claim(key, ok, values={…})`, recorded with the numbers behind it
+- a table is `vouch.table(key, rows, row_key=…)`; every cell is citable as `<key>.<row>.<col>`
+- data goes through `vouch.input()`, outputs through `vouch.artifact()`; figures are saved inside the run
 - parameters go through `params=`, so hyperparameters in the paper are citable
+
+[Patterns for agents](patterns.md) works these through with examples, along with
+formats that read like prose, results held to published numbers, and what to do
+when an experiment is redefined.
 
 `vouch status --json` gives an agent the stale runs and their exact re-run
 commands. `vouch todo --json` gives the owed experiments.
 
-See also: [Claude Code](claude-code.md), [MCP server](mcp-server.md).
+See also: [Claude Code](claude-code.md), [Patterns for agents](patterns.md),
+[MCP server](mcp-server.md).

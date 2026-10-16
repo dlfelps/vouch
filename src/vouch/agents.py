@@ -62,6 +62,12 @@ def evaluate(dataset: str, model: str, seed: int = 0) -> dict:
   `vouch explore`) as a sanity check that a key means what it looks like it means.
 - A single number: `vouch.record(key, value, desc=...)`; a dict: `vouch.record_all(d, prefix=...)`.
 - Multi-seed results: `over="seed"` or `vouch.Stat.of(per_seed)` -- never a hand-computed mean.
+- A long sweep: one `with vouch.run(f"sweep_n{n}", params={"n": n}):` per configuration,
+  so finished configurations stay recorded.
+- A property the experiment checks: `vouch.claim(key, ok, desc=..., values={...})`
+  where it is checked, with the numbers behind it.
+- A table: `vouch.table(key, rows, columns=[...], row_key="id", desc=...)`; every cell
+  is a key too, `<key>.<row>.<col>`.
 - Data read: `vouch.input(path)`; files written: `vouch.artifact(path)`; figures saved
   with matplotlib inside the run are tracked automatically.
 - Run the script normally. `vouch status` lists stale runs with their re-run command.
@@ -73,10 +79,15 @@ def evaluate(dataset: str, model: str, seed: int = 0) -> dict:
    for another precision; `.mean`, `.std`, `.n` for parts of a mean ± std).
    `vouch cite` also prints the producing function's docstring as `context:` when
    it has one -- if the user already documented it, use their own wording instead
-   of guessing at a description.
-3. Differences, ratios, "2x": never compute them. `vouch compare A B --write` adds a
-   `@vouch.derive` and a `@vouch.claim` to `vouch_values.py`; then `vouch build` and
-   cite the derived key.
+   of guessing at a description. Formats that read like prose: `[w]` ("two qubits",
+   zero to ten as words), `[,d]` (37,920), `[.0pct]`, `[.2fx]` (1.90x). A whole table
+   is `\vouchtable{key}`; a hand-written tabular cites its cells.
+3. Differences, ratios, shares, "2x": never compute them. `vouch compare A B --write`
+   adds a `@vouch.derive` and a `@vouch.claim` to `vouch_values.py`; then `vouch build`
+   and cite the derived key. A definition can read a file (`inputs=[path]`) or a
+   table (`v["table"]` is its rows as dicts), so a result held to a published one,
+   or "in every case", is a claim too. Add the definition before citing it: the
+   edit hook reports a key nothing defines yet as unknown.
 4. "Outperforms", "in every seed", "significantly": back them with a claim and wrap
    the prose: `\vouchclaim{key}{ResNet outperforms ViT}`. Write "significantly" only
    if `vouch compare` reports p < 0.05.
@@ -99,6 +110,10 @@ After the user re-runs an experiment, `vouch diff` says what the re-run did to e
 recorded value (cited or not) since the last commit: old -> new, delta, direction,
 better/worse. Use it to summarize a re-run; don't guess from memory.
 
+When an experiment is redefined rather than re-run, give its keys new names: a key
+that keeps its name but changes meaning shows up as a suspicious move against a
+baseline that no longer applies.
+
 ## Convert an existing paper
 
 `vouch suggest` classifies every typed number: replaceable (exactly one recorded
@@ -114,7 +129,7 @@ SOURCE number: each needs a run that records it, or removal.
 | `vouch compare A B [--write]` | arithmetic, significance, derive + claim code |
 | `vouch todo` | values the paper cites that no run recorded yet |
 | `vouch build` | evaluate `vouch_values.py`, regenerate the LaTeX and the catalog |
-| `vouch check --strict [--json]` | the gate; `--json` lists issues in the order to fix them |
+| `vouch check [--strict] [--json]` | the gate (`--strict` at submission); `--json` lists issues in the order to fix them |
 | `vouch changes` | cited values that moved (the user acks, not you) |
 | `vouch diff [REV]` | every recorded value that moved since a commit (default HEAD) |
 | `vouch trace KEY` | where a value came from |

@@ -19,14 +19,19 @@ always cheaper to use than a guessed one.
 ## Install
 
 ```console
-$ pip install -e .          # from a clone; Python ≥ 3.10, no dependencies
+$ pip install vouch-paper   # Python ≥ 3.10, no dependencies; the command is `vouch`
 $ vouch init                # finds your paper, writes vouch.toml, copies vouch.sty
 ```
 
-The base install is everything, the MCP server included, with no dependencies
-(only `tomli` on Python 3.10). Extras: `.[pandas]` to record pandas DataFrames;
-`.[mcp]` installs nothing more (`vouch mcp` needs nothing); `.[test]` for the test
-suite.
+The distribution is `vouch-paper` on PyPI; the package and the command are `vouch`.
+For the unreleased main branch, `pip install -e .` from a clone. The base install is
+everything, the MCP server included, with no dependencies (only `tomli` on Python
+3.10). Extras: `vouch-paper[pandas]` to record pandas DataFrames; `[mcp]` installs
+nothing more (`vouch mcp` needs nothing); `[test]` for the test suite. In a uv project,
+`uv add --dev vouch-paper` and run it as `uv run vouch ...`.
+
+Writing the paper with Claude Code? `vouch init --agents` sets it up, and
+[Patterns for agents](llm/patterns.md) collects what works.
 
 ## The shape of it
 
