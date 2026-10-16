@@ -541,6 +541,7 @@ vouch: recorded run experiments.train: 12 value(s) → .vouch/runs/experiments.t
 | `vouch.table(key, data, *, columns=None, row_key=None, fmt=None, highlight=None, desc=None)` | Record a table: a list of dicts, a list of lists plus `columns`, or a pandas DataFrame. |
 | `vouch.params(obj)` | Set the implicit run's parameters. |
 | `vouch.expect(key, *, desc, producer=None, fmt=None, unit=None, better=None)` | Declare a placeholder (see §5.5). |
+| `vouch.Pending` | The exception raised when a definition in `vouch_values.py` reads a pending key (§5.1). Its `keys` attribute names them. Let it propagate: the derivation then becomes pending too. |
 | `vouch.Stat.of(samples)` / `vouch.Stat(mean, std, n, *, min=None, max=None)` | A summary statistic. `std` is the sample std (ddof = 1). `ci95` uses Student-t quantiles. |
 
 Module-level functions act on the active run: the explicit one if inside a `with`, otherwise the implicit one. `run.<method>` is the same function bound to a specific run.

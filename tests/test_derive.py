@@ -229,6 +229,31 @@ def test_a_stale_run_makes_what_is_derived_from_it_stale(proj):
     assert stale.subject == "run:exp" and "the paper cites cifar.gap" in stale.message
 
 
+def test_reading_a_pending_key_raises_vouch_pending(proj):
+    # SPEC §5.1: "Accessing a pending (expected) key raises `vouch.Pending`." A definition
+    # that names it must find it on the package, as it finds vouch.derive.
+    proj.write("vouch_values.py", '''
+        import vouch
+
+        vouch.expect("later.x", desc="owed", producer="python later.py")
+
+        @vouch.derive("probe.kind", desc="what reading a pending key raised")
+        def probe(v):
+            try:
+                v["later.x"]
+            except vouch.Pending as exc:
+                return "pending:" + ",".join(exc.keys)
+            return "read"
+    ''')
+    paper(proj, "\\vouch{probe.kind}")
+    build(Config.load(proj.root))
+    assert "derive-error" not in issues(proj)
+    probe = derived(proj)["definitions"]["probe.kind"]
+    assert probe["values"]["probe.kind"]["value"] == "pending:later.x"
+    import vouch
+    assert "Pending" in vouch.__all__
+
+
 def test_aliases(proj, capsys):
     proj.write("vouch_values.py", '''
         import vouch

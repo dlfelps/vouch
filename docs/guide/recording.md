@@ -217,6 +217,7 @@ match.
 | `vouch.table(key, data, *, columns=None, row_key=None, fmt=None, highlight=None, desc=None)` | Record a table. |
 | `vouch.params(obj)` | Set the implicit run's parameters. |
 | `vouch.expect(key, *, desc, producer=None, fmt=None, unit=None, better=None)` | Declare a placeholder. |
+| `vouch.Pending` | Raised when a definition in `vouch_values.py` reads a pending key; `keys` names them. Let it propagate, and the derivation becomes pending too. |
 | `vouch.Stat.of(samples)` / `vouch.Stat(mean, std, n, *, min=None, max=None)` | A summary statistic. `std` is the sample std (ddof = 1). `ci95` uses Student-t quantiles. |
 
 Module-level functions act on the active run: the explicit one if inside a `with`,
