@@ -1,8 +1,10 @@
 # CLI reference
 
-Every command accepts `--json`, which emits a stable, versioned envelope
-(`schema: vouch/1`), and `--root DIR`. Output uses ✓/✗ when the console
-supports them and falls back to ASCII otherwise.
+Every command accepts `--root DIR`. These commands also accept `--json`,
+which emits a stable, versioned envelope (`schema: vouch/1`): `build`, `check`, `status`, `ls`, `explore`, `trace`, `document`, `search`, `cite`, `compare`, `suggest`, `todo`, `changes`, `diff` and `export`.
+The ones that act, wait or serve rather than report (`init`, `watch`, `run`, `import`, `ack`, `accept`, `review`, `sync`, `catalog`, `hook` and `mcp`) print for a
+person and exit with a status. Output uses ✓/✗ when the console supports
+them and falls back to ASCII otherwise.
 
 | Command | Does |
 |---|---|

@@ -4,7 +4,7 @@
 
 ## JSON output (`schema: vouch/1`)
 
-Every command's `--json` output uses the same envelope:
+Every reporting command's `--json` output (the [CLI reference](../cli/index.md) lists them) uses the same envelope:
 
 ```json
 {

@@ -1269,7 +1269,7 @@ Ported from asqc's `check.lint` and extended:
 
 ## 12. CLI reference
 
-Every command accepts `--json`, which emits a stable, versioned envelope (§13.6), and `--root DIR`. Output uses ✓/✗ when the console supports them and falls back to ASCII otherwise.
+Every command accepts `--root DIR`. These commands also accept `--json`, which emits a stable, versioned envelope (§13.6): `build`, `check`, `status`, `ls`, `explore`, `trace`, `document`, `search`, `cite`, `compare`, `suggest`, `todo`, `changes`, `diff` and `export`. The ones that act, wait or serve rather than report (`init`, `watch`, `run`, `import`, `ack`, `accept`, `review`, `sync`, `catalog`, `hook` and `mcp`) print for a person and exit with a status. Output uses ✓/✗ when the console supports them and falls back to ASCII otherwise.
 
 | Command | Does |
 |---|---|
@@ -1613,7 +1613,7 @@ On Linux and macOS, where interpreter start is a fraction of that, it is well un
 
 ### 13.6 JSON output (`schema: vouch/1`)
 
-Every command's `--json` output uses the same envelope:
+Every reporting command's `--json` output (§12 lists them) uses the same envelope:
 
 ```json
 {
