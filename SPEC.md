@@ -1263,6 +1263,7 @@ Ported from asqc's `check.lint` and extended:
   - references, citations, labels, URLs, `\includegraphics` and package options
   - lengths (`3pt`, `0.45\textwidth`) and `\\[2pt]`
   - `\begin`/`\end` with their optional arguments, and the column specs of `tabular`-like environments
+  - in drawing environments (`tikzpicture`, `pgfpicture`, `picture`, `circuitikz`, pgfplots' `axis`), the coordinate `( )` and option `[ ]` groups; a node's `{ }` text is still linted, and a `\vouch` inside a figure is still a citation
   - `\multicolumn`/`\multirow`/`\cmidrule` counts, colour definitions, `\setlength`-style settings, and `\date`
 
   A number glued to a word (`ResNet-50`, `GPT4`), a version (`1.2.3`), `2\times2` notation, and sub- and superscripts in math are not literals.

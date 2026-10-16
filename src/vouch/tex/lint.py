@@ -136,10 +136,40 @@ def mask(src: str, short: bool) -> str:
             if base == "begin":
                 end = _skip_groups(src, end, _TABULAR_SPEC.get(env, 0))
             _blank(chars, start, end)
+    _mask_drawings(src, chars)
     masked = "".join(chars)
     for rx in (_LENGTH, _LINEBREAK_OPT):
         masked = rx.sub(lambda mm: re.sub(r"[^\n]", " ", mm.group(0)), masked)
     return masked
+
+
+# Drawing environments are coordinates and options, not prose. The lint flagged every
+# coordinate of a tikzpicture as a typed number and suggested citing a recorded value in
+# its place. Their ( ) and [ ] groups are blanked; a node's { } text is kept, so a number
+# typed into a label is still flagged, and a \vouch inside a figure is still a citation.
+_DRAWINGS = re.compile(r"\\begin\{(tikzpicture|pgfpicture|picture|circuitikz|axis)\}"
+                       r"(.*?)\\end\{\1\}", re.S)
+
+
+def _mask_drawings(src: str, chars: list[str]) -> None:
+    for m in _DRAWINGS.finditer(src):
+        depth, i, end = 0, m.start(2), m.end(2)
+        while i < end:
+            ch = src[i]
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth = max(depth - 1, 0)
+            elif depth == 0 and ch in "([":
+                got = balanced(src, i, ch, ")" if ch == "(" else "]")
+                if got is not None and got[1] <= end:
+                    _blank(chars, i, got[1])
+                    i = got[1]
+                    continue
+            i += 1
 
 
 def _skip_ws(src: str, i: int) -> int:

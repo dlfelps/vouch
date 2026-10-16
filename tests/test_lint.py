@@ -70,6 +70,23 @@ $x_{10} + \sum_{i=1}^{10} y_i$ \vouch{cifar.resnet.acc} \vouch[.3f]{lr} % 99 in 
     assert literals(project, body, pre) == []
 
 
+def test_drawing_coordinates_are_not_results(project):
+    # A tikzpicture is coordinates and options, not prose: the lint flagged every
+    # coordinate, (6.4,0) and (1.65,-1.35), and suggested citing a recorded value in their
+    # place. A number typed into a node's text is still a result, and is still flagged.
+    body = r"""
+\begin{tikzpicture}[font=\footnotesize, box/.style={draw, minimum height=5mm}]
+  \draw (0,0) node[left] {$\ket0$} -- (6.4,0);
+  \draw[dashed] (1.65,0.45) -- (1.65,-1.35) node[below] {cut};
+  \fill (3.6,-0.9) circle (1.5pt);
+  \node[box, anchor=north west] (a) at (-0.6,-1.9) {measured 93.2\%};
+  \node at (2.5,-3.75) {\vouch{cifar.resnet.acc}};
+\end{tikzpicture}
+\begin{picture}(120,80)\put(10,20){x}\end{picture}
+"""
+    assert literals(project, body) == [r"93.2\%"]
+
+
 def test_a_file_read_in_the_preamble_is_not_prose(project):
     """A file \\input before \\begin{document} holds definitions. The lint used to skip
     the main file's preamble and lint every input file whole, so a generated table of
