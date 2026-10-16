@@ -101,6 +101,24 @@ def collect(ctx: Context) -> list[Issue]:
                                     f"never edit generated files)", rel,
                                     fix="vouch build", fix_kind="build"))
 
+    # The paper's copy of vouch.sty. `vouch init` copies it, and an upgraded vouch left the
+    # copy behind with nothing said, so a paper could be built against macros the
+    # installed version no longer writes or documents. Line endings don't count.
+    from .init import packaged_sty
+    current = packaged_sty().replace("\r\n", "\n")
+    for pl in ctx.plans:
+        sty = pl.main.parent / "vouch.sty"
+        try:
+            copy = sty.read_text(encoding="utf-8").replace("\r\n", "\n")
+        except OSError:
+            continue                    # none beside the paper: TeX finds one elsewhere
+        if copy != current:
+            rel = cfg.rel(sty)
+            issues.append(Issue("sty-outdated", "warning",
+                                f"{rel} is not this version of vouch's vouch.sty; "
+                                f"`vouch init` replaces it", rel, fix="vouch init",
+                                fix_kind="command"))
+
     # runs
     cited = _cited(ctx)
     for run, st in sorted(ctx.states.items()):

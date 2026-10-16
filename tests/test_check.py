@@ -243,3 +243,28 @@ def test_check_one_paper_of_several(project, capsys):
     assert cli.main(["check", "--root", str(project.root), "--no-env",
                      "--paper", "paper/c.tex"]) == 2              # not a paper of this project
     assert "paper/c.tex" in capsys.readouterr().err
+
+
+def test_an_outdated_vouch_sty_is_reported(example, capsys):
+    # vouch init copies vouch.sty beside the paper. When vouch is upgraded the copy
+    # stays behind, silently: a paper built against an old sty could lack a macro the
+    # new docs describe (\vouchpending), and check said nothing.
+    built(example)
+    sty = example / "paper" / "vouch.sty"
+    current = sty.read_text(encoding="utf-8")
+    sty.write_bytes(current.replace("\n", "\r\n").encode("utf-8"))      # a CRLF checkout
+    code, rep = check_json(example, capsys)
+    assert code == 0 and not [i for i in rep["issues"] if i["check"] == "sty-outdated"]
+    sty.write_text(current.replace(r"\vouchpending{\detokenize{#1}}",
+                                   r"\fbox{\scriptsize pending: \detokenize{#1}}"),
+                   encoding="utf-8", newline="\n")
+    code, rep = check_json(example, capsys)
+    outdated = [i for i in rep["issues"] if i["check"] == "sty-outdated"]
+    assert len(outdated) == 1 and outdated[0]["severity"] == "warning"
+    assert "paper/vouch.sty" in outdated[0]["message"]
+    assert outdated[0]["fix"]["value"] == "vouch init"
+    assert check(example, "--strict", capsys=capsys)[0] == 1
+    assert cli.main(["init", "--root", str(example)]) == 0
+    capsys.readouterr()
+    code, rep = check_json(example, capsys)
+    assert not [i for i in rep["issues"] if i["check"] == "sty-outdated"]

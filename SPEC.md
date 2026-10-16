@@ -1235,6 +1235,7 @@ There is exactly one CSV per paper, covering every cited key. This was decided i
 | `bare-number` | warning | a bare number that **does** match a recorded value | `vouch suggest --apply` |
 | `figure-untracked` | warning | an `\includegraphics` with no producing run | save it inside a run |
 | `no-description` | warning | a cited key has no `desc` | add `desc=` |
+| `sty-outdated` | warning | the `vouch.sty` beside the paper is not the installed vouch's (line endings aside): an upgrade left the copy `vouch init` made behind | `vouch init`, which replaces it |
 | `env-drift` / `absent` | warning | §8.4 | re-run if the difference matters |
 | `imported` | info (warning without `--producer`) | a run was registered with `vouch import`, not recorded live | re-run the producer under vouch for full provenance |
 | `cosmetic`, `accepted`, `hidden`, `reformatted`, `unused-value`, `expectation-met`, `default-float-format`, `dirty-tree-at-record` | info | — | — |
