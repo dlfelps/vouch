@@ -442,6 +442,43 @@ def cmd_check(args) -> int:
 _CHANGE_CHECKS = ("suspicious", "changed", "figure-changed")
 
 
+
+def cmd_lint(args) -> int:
+    """The edit hook's check (keys, macros, typed numbers), on the files named or on every
+    file of every paper. Edits made by a script never reach the hook, which runs after an
+    agent's own Edit or Write, so their slips waited for a full `vouch check`."""
+    import json as _json
+    from .edithook import INDEX, check_file
+    try:
+        cfg = _config(args)
+    except ConfigError as exc:
+        return _fatal("lint", exc)
+    try:
+        index = _json.loads((cfg.store / INDEX).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        C.out("vouch lint: run `vouch build` first; it writes the index this check reads")
+        return EXIT_FAIL
+    if args.files:
+        files = [Path(f) if Path(f).is_absolute() else Path.cwd() / f for f in args.files]
+    else:
+        files = [cfg.root / f for p in index.get("papers") or [] for f in p.get("files", [])]
+    bad = 0
+    for f in files:
+        notes: list[str] = []
+        got = check_file(f, notes) if f.suffix == ".tex" and f.is_file() else None
+        if got is None:
+            C.out(f"  {cfg.rel(f)}: not a file of any [[paper]] in this project")
+            bad += 1
+            continue
+        for line in got:
+            C.out(line)
+        for n in notes:
+            C.out(n)
+        bad += bool(got)
+    if not bad:
+        C.out(f"vouch lint: no problems in {len(files)} file(s)")
+    return EXIT_FAIL if bad else EXIT_OK
+
 SYM_OK = "✓"
 
 
@@ -1458,6 +1495,10 @@ def make_parser() -> argparse.ArgumentParser:
     sp.add_argument("--no-env", action="store_true", help="skip the package-version drift check")
     sp.add_argument("--paper", metavar="FILE",
                     help="check only this paper (main .tex), if vouch.toml lists several")
+
+    sp = add("lint", cmd_lint, "the edit hook's fast check, on any .tex file or the whole paper")
+    sp.add_argument("files", nargs="*", metavar="FILE",
+                    help="the .tex files to check (default: every file of every paper)")
 
     sp = add("status", cmd_status, "freshness of every run, with re-run commands")
     sp.add_argument("--json", action="store_true")

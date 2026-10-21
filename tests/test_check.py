@@ -320,6 +320,24 @@ def test_the_edit_hook_tells_the_agent_of_a_pending_key_without_blocking(example
     assert json.loads(printed.out)["hookSpecificOutput"]["additionalContext"] and not printed.err
 
 
+def test_lint_checks_files_as_the_edit_hook_does(example, capsys):
+    """Edits made by a script, not by an editor tool, never reach the edit hook, and only
+    a full `vouch check` caught their slips. `vouch lint` runs the hook's check on any
+    file, or on every file of every paper."""
+    built(example)
+    clean = (example / "paper/main.tex").read_text(encoding="utf-8")
+    capsys.readouterr()
+    assert cli.main(["lint", "--root", str(example)]) == 0
+    assert "no problems" in capsys.readouterr().out
+    cite(example, "toy.nope")
+    edit(example / "paper/main.tex", "Extra:", "It has 4242 points. Extra:")
+    assert cli.main(["lint", "--root", str(example), str(example / "paper/main.tex")]) == 1
+    out = capsys.readouterr().out
+    assert "unknown key toy.nope" in out and "4242" in out
+    (example / "paper/main.tex").write_text(clean, encoding="utf-8")
+    assert cli.main(["lint", "--root", str(example), "nowhere.tex"]) == 1
+    assert "not a file of any [[paper]]" in capsys.readouterr().out
+
 
 def test_false_claim(example, capsys):
     rec_path = example / ".vouch/runs/train.json"

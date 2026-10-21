@@ -12,6 +12,7 @@ them and falls back to ASCII otherwise.
 | [`vouch build`](setup.md#vouch-build) | Evaluates `vouch_values.py`, renders the values file, tables and catalog, reports changes. |
 | [`vouch watch`](setup.md#vouch-watch) | Rebuild whenever a run records values or the paper or `vouch_values.py` changes; prints what moved. |
 | [`vouch check`](check.md#vouch-check) | The gate. Read-only. Target: under 1 s. |
+| [`vouch lint`](check.md#vouch-lint) | The edit hook's fast check, on any `.tex` file or the whole paper. |
 | [`vouch status`](inspect.md#vouch-status) | Freshness per run, with the exact re-run command. |
 | [`vouch ls`](inspect.md#vouch-ls) | Keys with rendered value, description, run, freshness and citation count. |
 | [`vouch trace`](inspect.md#vouch-trace) | The full provenance chain for a key, figure, script, or file:line. |

@@ -28,6 +28,21 @@ vouch check: paper/main.tex · 16 citations · 1/1 cited runs fresh
 
 Full check list: [Checks and lints](../guide/checks-and-lints.md).
 
+## `vouch lint`
+
+The edit hook's check, on any `.tex` file: unknown keys, malformed macros, and
+numbers typed by hand, each with its fix. The hook runs only after an agent's own
+edits, so a file changed by a script, or by hand, waits for the next `vouch check`;
+`vouch lint` checks it at once, in the hook's time (it reads the index
+`vouch build` writes).
+
+```console
+$ vouch lint [FILE...] [--root DIR]
+```
+
+With no file, it checks every file of every paper. It exits 1 if any file has a
+problem, and also lists the values the files cite that are owed.
+
 ## `vouch changes`
 
 Cited values that changed since last acknowledged, with the citing sentences.
