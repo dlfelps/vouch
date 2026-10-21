@@ -179,6 +179,10 @@ ran. Now its line says `running since 2026-10-21 16:48 (process 1234)` instead. 
 whose process was killed before it could end shows as `interrupted`, until it is next
 recorded. `--json` lists both under `running`, each with `alive`.
 
+The last line says when the edit hook (`vouch hook claude`) last checked a paper file,
+and what it found: `edit hook: last ran 2026-10-21 17:02 on paper/main.tex: no problems`.
+The hook says nothing when all is well, so this is how to tell that it is running.
+
 ## `vouch todo`
 
 Values the paper cites that no run has recorded yet (`vouch.expect`).

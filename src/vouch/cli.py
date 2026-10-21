@@ -498,7 +498,8 @@ def cmd_status(args) -> int:
         print(_envelope("status", True, runs=[
             {"run": r, "state": st.state, "summary": st.summary(), "command": st.command,
              "cited": len(cited.get(r, [])), "reasons": [vars(x) for x in st.reasons]}
-            for r, st in sorted(ctx.states.items())], running=marks))
+            for r, st in sorted(ctx.states.items())], running=marks,
+                        edit_hook=edithook_last_run(cfg)))
         return EXIT_OK
     counts: dict[str, int] = {}
     for st in ctx.states.values():
@@ -530,7 +531,26 @@ def cmd_status(args) -> int:
             C.out(f"  ! {r:<24} interrupted: started {inflight.since(m)}, but process "
                   f"{m.get('pid')} ended without finishing the run, so nothing was recorded "
                   f"(the note goes when the run is next recorded)")
+    C.out(_hook_line(edithook_last_run(cfg)))
     return EXIT_OK
+
+
+def edithook_last_run(cfg):
+    from .edithook import last_run
+    return last_run(cfg)
+
+
+def _hook_line(last: dict | None) -> str:
+    """What `status` says of the edit hook, which is silent when all is well."""
+    if not last:
+        return ("edit hook: no run recorded (it checks a paper file after each agent edit; "
+                "`vouch init --agents` installs it)")
+    when = str(last.get("when", ""))[:16].replace("T", " ")
+    n = last.get("problems", 0)
+    found = f"{n} problem(s)" if n else "no problems"
+    owed = last.get("owed", 0)
+    return (f"edit hook: last ran {when} on {last.get('file')}: {found}"
+            + (f", {owed} value(s) owed" if owed else ""))
 
 
 # ---------------------------------------------------------------------------

@@ -339,6 +339,24 @@ def test_lint_checks_files_as_the_edit_hook_does(example, capsys):
     assert "not a file of any [[paper]]" in capsys.readouterr().out
 
 
+def test_status_says_when_the_edit_hook_last_ran(example, capsys):
+    """The hook is silent when all is well, which left "it ran and found nothing" and "it
+    never ran" looking the same. Each check of a paper file is noted, and status shows it."""
+    from vouch.edithook import run_edit_hook
+    built(example)
+    capsys.readouterr()
+    assert cli.main(["status", "--root", str(example), "--no-env"]) == 0
+    assert "edit hook: no run recorded" in capsys.readouterr().out
+    payload = json.dumps({"tool_name": "Edit",
+                          "tool_input": {"file_path": str(example / "paper/main.tex")}})
+    assert run_edit_hook(payload) == (0, "")
+    last = json.loads((example / ".vouch/cache/hook.json").read_text(encoding="utf-8"))
+    assert last["file"] == "paper/main.tex" and last["problems"] == 0
+    assert cli.main(["status", "--root", str(example), "--no-env"]) == 0
+    out = capsys.readouterr().out
+    assert "edit hook: last ran" in out and "paper/main.tex: no problems" in out
+
+
 def test_false_claim(example, capsys):
     rec_path = example / ".vouch/runs/train.json"
     rec = json.loads(rec_path.read_text(encoding="utf-8"))

@@ -269,12 +269,36 @@ def check_file(path: Path, notes: list[str] | None = None) -> list[str] | None:
                      f"which is allowed while they are owed: {', '.join(sorted(set(owed)))}. "
                      f"Tell the user these experiments are owed (`vouch todo` lists them); "
                      f"never type a number in their place.")
+    _note_run(cfg, rel, len(problems), len(set(owed)))
     if not problems:
         return []
     out = [f"vouch: {rel} has {len(problems)} problem(s) -- fix them now:"]
     for line, msg in sorted(problems):
         out.append(f"  line {line}: {msg}")
     return out
+
+
+LAST_RUN = "cache/hook.json"
+
+
+def _note_run(cfg, rel: str, problems: int, owed: int) -> None:
+    """The last check of a paper file, for `vouch status`. The hook is silent when all is
+    well, which made "it ran and found nothing" look the same as "it never ran"."""
+    import datetime as _dt
+    try:
+        (cfg.store / LAST_RUN).write_text(json.dumps({
+            "when": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "file": rel, "problems": problems, "owed": owed}), encoding="utf-8")
+    except OSError:
+        pass                                # a hook must never get in the agent's way
+
+
+def last_run(cfg) -> dict | None:
+    try:
+        d = json.loads((cfg.store / LAST_RUN).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return d if isinstance(d, dict) else None
 
 
 def edit_hook_result(stdin_text: str) -> tuple[int, str, str]:
