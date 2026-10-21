@@ -445,7 +445,9 @@ def test_calls_are_timed(project):
     proc = project.run("exp.py", check=True)
     v = values(project, timing=True)
     secs = v["train.resnet.acc"]["call"]["seconds"]
-    assert len(secs) == 3 and all(0.025 < s < 5 for s in secs)
+    # Before Python 3.11, time.sleep on Windows can wake up to one 15.6 ms timer tick early,
+    # so a 30 ms sleep may measure 15 ms; the bound asks only that the time is a real one.
+    assert len(secs) == 3 and all(0.01 < s < 5 for s in secs)
     t = v["train.resnet.time"]
     assert t["type"] == "stat" and t["unit"] == "s" and decode("stat", t["value"]).n == 3
     assert t["timing"] is True and "timing" not in v["train.resnet.acc"]      # on by default

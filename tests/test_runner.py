@@ -78,6 +78,11 @@ def test_shorthand_values_and_results_files(proj):
     assert set(rec["values"]) == {"resnet.acc", "vit.acc"} and "results/m.csv" in rec["inputs"]
 
 
+needs_monitoring = pytest.mark.skipif(sys.version_info < (3, 12),
+                                      reason="function-level tracking needs sys.monitoring")
+
+
+@needs_monitoring
 def test_python_commands_are_tracked_by_function(proj):
     proj.write("train.py", '''
         import vouch
@@ -108,6 +113,7 @@ def test_a_failing_command_records_nothing(proj, capsys):
     assert cli.main(["run", "jl", "--", "python", "dies.py"]) == 4
     assert (proj.root / ".vouch/runs/jl.json").read_bytes() == before     # the child's is undone
     assert cli.main(["run", "jl"]) == 2                                  # no command
+
 
 
 def test_import_registers_a_file_with_declared_provenance(proj, capsys):
@@ -181,6 +187,7 @@ def test_where_the_interpreter_is(cmd, at):
     assert _python_at(cmd) == at
 
 
+@needs_monitoring
 def test_uv_run_python_is_tracked_by_function(proj):
     """`uv run ... python script.py` runs a Python script, so it gets what `python
     script.py` gets: function-level tracking and the real interpreter in the record,

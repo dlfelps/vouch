@@ -239,6 +239,9 @@ def math_spans(src: str) -> list[tuple[int, int]]:
 # ---------------------------------------------------------------------------
 
 _NUM = r"\d+(?:\.\d+)?"
+# Named, not inlined: `rf"{r'\d{2,}'}"` put a backslash in a replacement field, which only
+# Python 3.12 (PEP 701) parses, so this module was a SyntaxError on 3.10 and 3.11.
+_INT2 = r"\d{2,}"
 _LITERAL = re.compile(
     rf"(?P<pm>(?<![\w.])-?{_NUM}\s*\\pm\s*{_NUM}(?:\s*\\%)?)"
     rf"|(?P<sci>(?<![\w.])-?{_NUM}\s*\\times\s*10\^\{{?-?\d+\}}?)"
@@ -246,7 +249,7 @@ _LITERAL = re.compile(
     rf"|(?P<pct>(?<![\w.])-?{_NUM}\s*\\%)"
     rf"|(?P<mult>(?<![\w.]){_NUM}\s*\\times(?!\s*\d)(?![A-Za-z]))"
     rf"|(?P<dec>(?<![\w.])-?\d+\.\d+(?!\w|\.\d))"            # a sentence's full stop is fine;
-    rf"|(?P<int>(?<![\w.^_{{}}\-]){r'\d{2,}'}(?![\w}}]|\.\d))")  # 1.2.3 (a version) is not
+    rf"|(?P<int>(?<![\w.^_{{}}\-]){_INT2}(?![\w}}]|\.\d))")  # 1.2.3 (a version) is not
 _YEAR = re.compile(r"(?:19|20)\d\d")
 
 
