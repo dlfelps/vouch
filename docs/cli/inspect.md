@@ -173,6 +173,12 @@ $ vouch status [--json] [--no-env] [--root DIR]
 
 `--no-env` skips the package-version drift check.
 
+It also shows the runs that are recording right now. A run writes its record only when
+it ends, so a long one used to look stale, with a re-run command, the whole time it
+ran. Now its line says `running since 2026-10-21 16:48 (process 1234)` instead. A run
+whose process was killed before it could end shows as `interrupted`, until it is next
+recorded. `--json` lists both under `running`, each with `alive`.
+
 ## `vouch todo`
 
 Values the paper cites that no run has recorded yet (`vouch.expect`).

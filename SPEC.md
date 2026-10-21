@@ -216,7 +216,7 @@ vouch_values.py             # derive / claim / table / expect definitions (commi
   accepted.toml             # reviewed-staleness ledger (committed)
   history.jsonl             # append-only log of detected changes and acks (committed)
   CATALOG.md                # LLM- and human-readable catalog of every value (committed, generated)
-  cache/                    # hash cache, derive cache, notification state (gitignored)
+  cache/                    # hash cache, derive cache, notification state, runs in progress (gitignored)
 paper/
   main.tex
   vouch.sty                 # copied in by `vouch init`, so Overleaf and arXiv need no install (committed)
@@ -350,6 +350,7 @@ with vouch.run("cifar_resnet", params=args) as run:
 - Runs cannot nest. Several sequential runs in one process are allowed, e.g. a sweep loop with one run per configuration.
 - **Parameters.** `params=` accepts a dict, an `argparse.Namespace`, a dataclass, or any object with `to_dict()`/`to_container()` (OmegaConf, Pydantic). Values are flattened with dots and stored. Each one is citable as `<run>.param.<name>`, so "we train for 100 epochs" is `\vouch{cifar_resnet.param.epochs}` and cannot drift from the code.
 - **Command.** `sys.argv` and the interpreter are recorded, which is what gives `vouch status` its exact re-run command.
+- **In progress.** While a run records, a marker names it in `.vouch/cache/running/<id>.json`: the run, its process id, its start, its entry script and command. An explicit run writes it on entering the `with` block, an implicit one at its first record, and `vouch run` around the command it starts; it goes when the run is written or discarded. `vouch status` shows such a run as running since its start, in place of the re-run command, and a marker whose process is gone (killed before the run could end) as interrupted, until the run is next recorded. A key a script records, cited while that run is going, is pending with "it is running since …" (§5.5). A record is still written only at the end.
 
 ### 4.3 Recording everything at once: `record_all`
 
@@ -1285,7 +1286,7 @@ Every command accepts `--root DIR`. These commands also accept `--json`, which e
 | `vouch build [--no-notify]` | Evaluates `vouch_values.py`, renders the values file, tables (and the provenance CSV if `provenance_csv` is set) and catalog, refreshes annotations if enabled, auto-acknowledges new, `hidden` and `reformatted` changes, and prints the change block (§9.3). |
 | `vouch watch [--interval SEC] [--then CMD] [--no-notify] [--quiet]` | Builds, then rebuilds whenever a run record, `vouch.toml`, a values module or a paper `.tex` changes (stdlib polling; the build's own outputs never trigger it). Prints the values that moved since the previous build. `--then` runs a command (e.g. `latexmk`) after each build that wrote files. Never runs an experiment. |
 | `vouch check [--strict] [--quiet] [--verbose] [--json] [--no-env] [--paper FILE]` | The gate (§11). Read-only. Target: under 1 s. `--verbose` also prints the informational notes (values nobody cites, runs recorded on a dirty tree, cosmetic code changes); `--no-env` skips the package-version drift check. `--quiet` prints only problems, and collapses pending `expect()` values, the planned state of a draft, to one line pointing at `vouch todo`; under `--strict` they are errors and are printed in full. Changes a build has already reported are one line in either mode (§9.3). A failing check names its errors on its last line. `--paper` gates one `[[paper]]` of several; a file that no `[[paper]]` lists is an error. |
-| `vouch status [--no-env]` | Freshness per run, git-status style, with the exact re-run command and the units that changed. `--no-env` skips the package-version drift check. |
+| `vouch status [--no-env]` | Freshness per run, git-status style, with the exact re-run command and the units that changed, and the runs in progress or interrupted (§4.2); `--json` lists those under `running`. `--no-env` skips the package-version drift check. |
 | `vouch ls [PATTERN] [--cited\|--uncited] [--all] [--json]` | Keys with rendered value, description, run, freshness and citation count, numbers inside keys in numeric order. A mean ± std's subfields (`.mean`, `.std`, …) are listed only when cited or with `--all`; `--json` always has every key. |
 | `vouch trace KEY \| FIGURE \| SCRIPT \| FILE \| FILE:LINE` | The full chain for a key; for a figure, the run and `savefig` line that produced it, whether the file is still what that run saved, and where the paper includes it; the values a script produces and where they're cited; for any other file a run wrote, imported or read (a results table, a model, a wheel), the run that wrote it, whether it is still what that run wrote, and the runs and derived values that read it; or the values cited on a line of tex. |
 | `vouch explore [--port N] [--open] [--html FILE] [--json]` | Browse every recorded value in a local web page, grouped by script and function, and copy the LaTeX that cites it (§12.2). |
@@ -1845,6 +1846,7 @@ src/vouch/
   assist.py          search (BM25), cite, compare (Welch t-test, stdlib only), todo
   explore.py         vouch explore (local web page);  data/explore.html
   runner.py          vouch run / vouch import
+  inflight.py        runs in progress: .vouch/cache/running/ markers, process liveness
   edithook.py        vouch hook claude / stop, and .vouch/cache/index.json
   agents.py          vouch init --agents: SKILL.md, the rules block, .claude/settings.json, .mcp.json
   mcp_server.py      vouch mcp: MCP over stdio, stdlib JSON-RPC

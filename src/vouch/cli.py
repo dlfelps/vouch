@@ -454,11 +454,14 @@ def cmd_status(args) -> int:
     except (BuildError, ConfigError, FileNotFoundError) as exc:
         return _fatal("status", exc)
     cited = _cited(ctx)
+    from . import inflight
+    marks = inflight.running(cfg.store)        # runs recording now, or killed while they did
+    live = {m.get("run"): m for m in marks if m["alive"]}
     if args.json:
         print(_envelope("status", True, runs=[
             {"run": r, "state": st.state, "summary": st.summary(), "command": st.command,
              "cited": len(cited.get(r, [])), "reasons": [vars(x) for x in st.reasons]}
-            for r, st in sorted(ctx.states.items())]))
+            for r, st in sorted(ctx.states.items())], running=marks))
         return EXIT_OK
     counts: dict[str, int] = {}
     for st in ctx.states.values():
@@ -474,10 +477,22 @@ def cmd_status(args) -> int:
               + (f" · cited {n}×" if n else " · not cited"))
         if st.state not in ("fresh",):
             C.out(f"    {'':<24} {st.summary()}")
-        if st.is_error and st.command:
+        if r in live:          # a re-run is under way: don't offer to start another
+            C.out(f"    {'':<24} running since {inflight.since(live[r])} "
+                  f"(process {live[r].get('pid')}); its record is replaced when it ends")
+        elif st.is_error and st.command:
             C.out(f"    {'':<24} re-run: {st.command}")
         for d in st.of("env-drift"):
             C.out(f"    {'':<24} ! {d.detail}")
+    for m in marks:
+        r = m.get("run", "?")
+        if m["alive"] and r not in ctx.states:
+            C.out(f"  ▶ {r:<24} running since {inflight.since(m)} (process {m.get('pid')}), "
+                  f"not recorded yet: {m.get('command') or ''}")
+        elif not m["alive"]:
+            C.out(f"  ! {r:<24} interrupted: started {inflight.since(m)}, but process "
+                  f"{m.get('pid')} ended without finishing the run, so nothing was recorded "
+                  f"(the note goes when the run is next recorded)")
     return EXIT_OK
 
 

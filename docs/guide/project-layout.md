@@ -14,7 +14,7 @@ vouch_values.py             # derive / claim / table / expect definitions (commi
   accepted.toml             # reviewed-staleness ledger (committed)
   history.jsonl             # append-only log of detected changes and acks (committed)
   CATALOG.md                # LLM- and human-readable catalog of every value (committed, generated)
-  cache/                    # hash cache, derive cache, notification state (gitignored)
+  cache/                    # hash cache, derive cache, notification state, runs in progress (gitignored)
 paper/
   main.tex
   vouch.sty                 # copied in by `vouch init`, so Overleaf and arXiv need no install (committed)

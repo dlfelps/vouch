@@ -246,12 +246,17 @@ def _run_command(cfg: Config, run_id: str, cmd: list[str], *, deps: list[str] = 
     if is_py:
         env["PYTHONPATH"] = os.pathsep.join([_PKG_PARENT] + [p for p in
                                             env.get("PYTHONPATH", "").split(os.pathsep) if p])
+    from . import inflight
+    entry = cfg.rel(cmd[at + 1]) if is_py else None
+    inflight.mark(cfg.store, run.id, entry=entry, command=" ".join(cmd))   # status: running
     try:
         rc = subprocess.run(real, env=env).returncode
     except OSError as exc:
         raise RunError(f"could not start {cmd[0]}: {exc} (a program is looked up on PATH; "
                        f"a relative path, in the working directory and then the project "
                        f"root)") from None
+    finally:
+        inflight.unmark(cfg.store, run.id)
     try:
         if rc != 0:
             after = target.read_bytes() if target.exists() else None

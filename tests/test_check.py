@@ -3,7 +3,9 @@
 import csv
 import io
 import json
+import os
 import subprocess
+import sys
 
 import pytest
 from conftest import edit, rerun
@@ -244,6 +246,43 @@ def test_a_key_its_current_run_did_not_record_stays_unknown(example, capsys):
     code, rep = check_json(example, capsys)
     issue = about(rep, "toy.extra")[0]
     assert issue["check"] == "unknown-key" and "train.py:" in issue["message"]
+
+
+def marker(example, run, pid, entry="train.py"):
+    d = example / ".vouch/cache/running"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{run}.json").write_text(json.dumps(
+        {"run": run, "pid": pid, "started": "2026-10-21T16:48:00Z", "entry": entry,
+         "command": f"python {entry}"}), encoding="utf-8")
+
+
+def ended_pid():
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    proc.wait()
+    return proc.pid
+
+
+def test_status_shows_a_run_in_progress_and_one_that_never_finished(example, capsys):
+    built(example)
+    marker(example, "train", os.getpid())
+    marker(example, "sweep", ended_pid(), entry="sweep.py")
+    capsys.readouterr()
+    assert cli.main(["status", "--root", str(example), "--no-env"]) == 0
+    out = capsys.readouterr().out
+    assert "train" in out and "running since 2026-10-21 16:48" in out
+    assert "sweep" in out and "interrupted" in out
+    assert cli.main(["status", "--root", str(example), "--no-env", "--json"]) == 0
+    running = json.loads(capsys.readouterr().out)["running"]
+    assert {(r["run"], r["alive"]) for r in running} == {("train", True), ("sweep", False)}
+
+
+def test_a_pending_key_says_its_run_is_in_progress(example, capsys):
+    built(example)
+    edit(example / "train.py", "vouch.params(", RECORD_EXTRA + "vouch.params(")
+    cite(example, "toy.extra")
+    marker(example, "train", os.getpid())
+    code, rep = check_json(example, capsys)
+    assert "running since 2026-10-21 16:48" in about(rep, "toy.extra")[0]["message"]
 
 
 def test_the_edit_hook_does_not_block_on_a_key_a_script_records(example):

@@ -567,7 +567,20 @@ class Run:
                 raise RuntimeError(f"vouch runs cannot nest: {_explicit.id!r} is still active")
             self._entered = True
             _explicit = self
+        self._mark_running()
         return self
+
+    def _mark_running(self) -> None:
+        """A marker naming this run while it records (inflight.py), for `vouch status`."""
+        from . import inflight
+        main_file = _project().main_file
+        inflight.mark(self._config.store, self.id,
+                      entry=self._config.rel(main_file) if main_file else None,
+                      command=" ".join(_command(self._config)))
+
+    def _unmark_running(self) -> None:
+        from . import inflight
+        inflight.unmark(self._config.store, self.id)
 
     def __exit__(self, exc_type, exc, tb) -> bool:
         global _explicit
@@ -579,6 +592,7 @@ class Run:
             self.finalize()
         else:
             self.closed = True
+            self._unmark_running()
             what = exc_type.__name__
             if issubclass(exc_type, SystemExit):
                 what = f"sys.exit({exc.code!r})"
@@ -599,6 +613,7 @@ class Run:
         proj = _project()
         ensure_store(proj.config.store)
         self.path = write_record(proj.config.store, record)
+        self._unmark_running()
         with _state_lock:
             if self.id in _written:
                 _warn(f"run {self.id} was recorded twice in this process; the second replaces the first")
@@ -1000,6 +1015,7 @@ def _finalize_implicit() -> None:
         return
     if _crashed:
         run.closed = True
+        run._unmark_running()
         _warn(f"run {run.id} discarded (the script raised an uncaught exception); "
               f"its previous record, if any, is unchanged")
         return
@@ -1015,6 +1031,7 @@ def _implicit_run() -> Run:
     with _state_lock:
         if _implicit is None or _implicit.closed:
             _implicit = Run(_default_run_id(), _implicit=True)
+            _implicit._mark_running()
             if sys.excepthook is not _on_uncaught:
                 _on_uncaught.__defaults__[0][0] = sys.excepthook
                 sys.excepthook = _on_uncaught

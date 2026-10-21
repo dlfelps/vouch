@@ -395,8 +395,10 @@ def _scripted_pending(cfg: Config, idx: Index, states: dict | None, keys: set[st
     and still did not record the key will not record it by running again: that key stays
     unknown, and the returned hint says where the script names it.
     """
+    from . import inflight
     from .valuesmod import script_keys
     named = script_keys(cfg)
+    live = [m for m in inflight.running(cfg.store) if m["alive"]]
     hints: dict[str, str] = {}
     for key in sorted(keys):
         if key not in named:
@@ -409,7 +411,12 @@ def _scripted_pending(cfg: Config, idx: Index, states: dict | None, keys: set[st
             hints[key] = (f"; {file}:{line} records it, but run {current[0].run}, which is "
                           f"current, did not: does that line run?")
             continue
-        if st:
+        going = next((m for m in live if m.get("entry") == file or m.get("run") in runs), None)
+        if going is not None:
+            what = (f"recorded by {file}:{line} when run {going.get('run')} ends: it is running "
+                    f"since {inflight.since(going)}")
+            producer = st[0].command if st and st[0].command else f"python {file}"
+        elif st:
             what = f"recorded by {file}:{line} once run {st[0].run} runs again (it is {st[0].state})"
             producer = st[0].command or f"python {file}"
         else:

@@ -361,3 +361,36 @@ def test_rerun_is_identical_except_timing(project):
         for k in ("started", "duration_s", "record_hash"):
             rec.pop(k)
     assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
+
+
+# ---------------------------------------------------------------------------
+# runs in flight
+# ---------------------------------------------------------------------------
+
+def test_a_run_is_marked_while_it_records(project):
+    """A run of twenty minutes was invisible until it finished: `vouch status` called its
+    record stale and offered the re-run command, and a key it was about to record looked
+    unknown. While a run records, a marker names it, its process and its start."""
+    project.write("exp.py", """
+        import json, os, vouch
+        from pathlib import Path
+        marker = Path(".vouch/cache/running/slow.json")
+        with vouch.run("slow"):
+            d = json.loads(marker.read_text(encoding="utf-8"))
+            print("DURING", d["run"], d["pid"] == os.getpid(), d["entry"])
+            vouch.record("slow.x", 1, desc="d")
+        print("AFTER", marker.exists())
+        try:
+            with vouch.run("slow"):
+                raise ValueError("boom")
+        except ValueError:
+            pass
+        print("DISCARDED", marker.exists())
+        vouch.record("implicit.x", 2, desc="d")
+        print("IMPLICIT", Path(".vouch/cache/running/exp.json").exists())
+    """)
+    proc = project.run("exp.py", check=True)
+    assert "DURING slow True exp.py" in proc.stdout
+    assert "AFTER False" in proc.stdout and "DISCARDED False" in proc.stdout
+    assert "IMPLICIT True" in proc.stdout                    # the implicit run, while it lasts
+    assert not (project.root / ".vouch/cache/running/exp.json").exists()   # gone at exit
