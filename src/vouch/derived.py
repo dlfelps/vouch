@@ -574,15 +574,25 @@ class _Evaluator:
         # sorted keys, so a claim encoded in access order rendered differently on the
         # build that evaluated it than on every later build and check, which then reported
         # the values file out-of-sync until a second `vouch build`.
-        for k in sorted(rec["deps"])[:8]:
+        # At most eight are kept. They were the first eight in key order, and the rest were
+        # dropped without a word: a claim summarizing sixteen checks, one of them failing,
+        # could not show which one. Inputs that are false now come first, then the rest in
+        # key order, and the number left out is recorded.
+        read = []
+        for k in sorted(rec["deps"]):
             e = self.idx.get(self.resolve(k))
             if e is not None and e.kind != "table" and not k.startswith("keys:"):
-                try:
-                    vals[k] = encode_cell(e.raw)
-                except TypeError:
-                    vals[k] = str(e.raw)
+                read.append((k, e))
+        read.sort(key=lambda ke: (ke[1].raw is not False, ke[0]))
+        for k, e in sorted(read[:8], key=lambda ke: ke[0]):
+            try:
+                vals[k] = encode_cell(e.raw)
+            except TypeError:
+                vals[k] = str(e.raw)
         if vals:
             c["values"] = vals
+        if len(read) > 8:
+            c["values_omitted"] = len(read) - 8
         return c
 
     def _encode_table(self, d: Definition, result: Any) -> dict:

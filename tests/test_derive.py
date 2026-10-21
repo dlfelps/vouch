@@ -325,6 +325,25 @@ def test_inputs_are_loaded_and_must_come_from_a_run(project):
         issues(project)["out-of-sync"][0].message
 
 
+def test_a_claim_keeps_the_inputs_that_are_false(proj):
+    """A claim's record kept the first eight values it read, in key order, and dropped the
+    rest silently: a summary of sixteen checks with one failing could not show which. The
+    false inputs come first, and the number left out is recorded and shown."""
+    lines = ["import vouch", ""]
+    for name in "abcdefghijk":
+        lines += [f'@vouch.claim("chk.{name}", desc="check {name}")', f"def c_{name}(v):",
+                  f"    return {name != 'k'}", ""]
+    lines += ['@vouch.claim("chk.all", desc="every check holds")', "def c_all(v):",
+              '    return all(v[f"chk.{n}"] for n in "abcdefghijk")', ""]
+    proj.write("vouch_values.py", "\n".join(lines))
+    paper(proj, "\\vouchclaim{chk.all}{every check holds}.")
+    build(Config.load(proj.root))
+    c = derived(proj)["definitions"]["chk.all"]["claim"]
+    assert c["holds"] is False and c["values"]["chk.k"] is False
+    assert len(c["values"]) == 8 and c["values_omitted"] == 3
+    assert "+3 more" in values_file(proj)                   # said where the values are shown
+
+
 def test_a_claim_renders_the_same_on_the_build_that_evaluates_it(proj):
     """A claim lists the values it read. They were kept in the order the function read
     them, and derived.json stores keys sorted, so the build that evaluated the claim

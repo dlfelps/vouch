@@ -722,6 +722,8 @@ A claim that holds by less than `changes.claim_margin` (default 1%) is reported 
 
 The helpers work in experiments too: `vouch.claim("cifar.resnet_beats_vit", vouch.gt(acc_r, acc_v), desc=…)` records the explanation and margin with the claim. Tooltips, the appendix and `vouch trace` show `0.932 > 0.912 (margin 2.2%)`.
 
+A claim defined in a values module that returns a plain `bool` records the values it read instead, at most eight: the ones that are false first (they are why a claim fails, as when it summarizes several checks), then the rest in key order, and the number left out as `values_omitted`, shown as `+N more`.
+
 ### 5.4 Tables
 
 A table is recorded data, `run.table(...)`, or derived data, `@vouch.table(...)`. It is rendered at **build** time, so its presentation can be changed without re-running anything, either in the table definition or with overrides under `[tables.<key>]` in `vouch.toml`.

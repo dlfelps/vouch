@@ -200,7 +200,9 @@ def _claim_detail(e: Entry) -> str:
     if expl:
         return expl + (f" (margin {margin:.1%})" if isinstance(margin, (int, float)) else "")
     vals = e.extra.get("values") or {}
-    return ", ".join(f"{k}={_num(v)}" for k, v in vals.items())
+    more = e.extra.get("values_omitted")
+    return (", ".join(f"{k}={_num(v)}" for k, v in vals.items())
+            + (f", +{more} more" if more else ""))
 
 
 def prov_latex(idx: Index, e: Entry, change: ch.Change | None = None) -> str:
