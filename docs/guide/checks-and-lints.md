@@ -13,7 +13,7 @@ code.
 | `config` | error | invalid `vouch.toml` or tex graph | message names the file and line |
 | `store-edited` | error | a run record's or `derived.json`'s `record_hash` doesn't match its content | re-run the experiment (or `vouch build`); never hand-edit `.vouch/` |
 | `derive-error` | error | a values module failed to import, or a definition raised, read an unknown key, read a failed definition, returned the wrong type, or was defined twice | fix the definition, then `vouch build` |
-| `unknown-key` | error | a cited key exists nowhere (did-you-mean suggestions included) | fix the key, or `record`/`derive`/`expect` it |
+| `unknown-key` | error | a cited key exists nowhere (did-you-mean suggestions for a near miss only; otherwise a pointer to `vouch search`) | fix the key, or `record`/`derive`/`expect` it |
 | `key-conflict` | error | two sources produce one key | rename one |
 | `out-of-sync` | error | generated files or `derived.json` differ from what `build` would write; a warning when only the provenance CSV's citation lines moved | `vouch build` |
 | `stale` / `upstream-stale` | error (info when the paper cites nothing from the run) | see [Freshness](freshness.md) | re-run (exact command shown) or `vouch accept` |

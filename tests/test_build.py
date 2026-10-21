@@ -122,6 +122,26 @@ def test_unknown_keys_and_bad_formats_are_reported(example):
     assert "main.centroid.model: format '.1pct' cannot render str" in fmt[0].message
 
 
+def test_did_you_mean_only_for_a_near_miss(example):
+    """Suggestions came from spelling alone at a low cutoff: a new key, toy.extra, was told
+    "did you mean toy.centroid.acc?", which an agent may simply take. A real typo is far
+    closer (0.93 and up) than such a lead (0.64 to 0.81); below the cutoff the message
+    points to `vouch search` instead."""
+    from vouch.edithook import run_edit_hook
+    main = example / "paper" / "main.tex"
+    main.write_text(main.read_text(encoding="utf-8").replace(
+        r"\end{document}", r"\vouch{toy.extra} \vouch{toy.centriod.acc}" "\n" r"\end{document}"),
+        encoding="utf-8")
+    res = build(Config.load(example))
+    unknown = {i.subject: i.message for i in res.plans[0].issues if i.check == "unknown-key"}
+    assert "did you mean" not in unknown["toy.extra"] and "vouch search" in unknown["toy.extra"]
+    assert "did you mean toy.centroid.acc" in unknown["toy.centriod.acc"]
+    code, text = run_edit_hook(json.dumps({"tool_name": "Edit",
+                                           "tool_input": {"file_path": str(main)}}))
+    hook_line = next(ln for ln in text.splitlines() if "toy.extra" in ln)
+    assert "did you mean" not in hook_line and "vouch search" in hook_line
+
+
 def test_store_edits_are_reported(example):
     rec = example / ".vouch" / "runs" / "train.json"
     rec.write_text(rec.read_text(encoding="utf-8").replace('"n_test": ', '"n_test": ', 1)

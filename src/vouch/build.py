@@ -481,7 +481,8 @@ def prepare_paper(cfg: Config, idx: Index, paper: dict, states: dict | None = No
                 issues.append(Issue("unknown-key", "error",
                                     f"\\{macro}{{{c.key}}} is not recorded by any run"
                                     + hints.get(c.key, "")
-                                    + (f" (did you mean {', '.join(sugg)}?)" if sugg else ""),
+                                    + (f" (did you mean {', '.join(sugg)}?)" if sugg
+                                       else "; find it with `vouch search`"),
                                     c.file, c.line, subject=c.key,
                                     fix="fix the key, or record it (vouch.record / record_all)",
                                     fix_kind="edit"))

@@ -32,6 +32,19 @@ def is_valid_key(key: object) -> bool:
     return isinstance(key, str) and len(key) <= KEY_MAX and _KEY_RE.fullmatch(key) is not None
 
 
+# How close a key must be to be offered as "did you mean". The cutoff was 0.6, which
+# offered toy.centroid.acc for a new key toy.extra (0.64), and au.examples.a for
+# au.examples.cascade (0.81): leads an agent may simply take. A real typo is much closer:
+# a dropped, doubled or swapped letter scores 0.93 and up on keys of the usual length.
+NEAR_MISS = 0.85
+
+
+def near_keys(key: str, keys: Iterable[str], n: int = 3) -> list[str]:
+    """The keys close enough to ``key`` to be a typo of it, nearest first."""
+    import difflib
+    return difflib.get_close_matches(key, list(keys), n=n, cutoff=NEAR_MISS)
+
+
 def sanitize_key(raw: object) -> str:
     """The nearest valid key to ``raw``.
 

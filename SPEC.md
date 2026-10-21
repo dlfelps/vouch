@@ -1227,7 +1227,7 @@ There is exactly one CSV per paper, covering every cited key. This was decided i
 | `config` | error | invalid `vouch.toml` or tex graph | message names the file and line |
 | `store-edited` | error | a run record's or `derived.json`'s `record_hash` doesn't match its content | re-run the experiment (or `vouch build`); never hand-edit `.vouch/` |
 | `derive-error` | error | a values module failed to import, or a definition raised, read an unknown key, read a failed definition, returned the wrong type, or was defined twice; the message names the file:line. A cited key whose definition failed is also reported where the paper cites it (not as `unknown-key`) | fix the definition, then `vouch build` |
-| `unknown-key` | error | a cited key exists nowhere (did-you-mean suggestions included) | fix the key, or `record`/`derive`/`expect` it |
+| `unknown-key` | error | a cited key exists nowhere (did-you-mean suggestions for a near miss only; otherwise a pointer to `vouch search`) | fix the key, or `record`/`derive`/`expect` it |
 | `key-conflict` | error | two sources produce one key | rename one |
 | `out-of-sync` | error | generated files or `derived.json` differ from what `build` would write. Run freshness is excluded from the comparison: it depends on the working tree, not on what was recorded, so it lives on separate `\vouch@state` lines (read by tooltips) and in the CSV's freshness column. A code edit is reported once, as `stale`, never also as `out-of-sync`. A provenance CSV that differs only in its `cited_at` column (citations moved to other lines) is a warning. | `vouch build` |
 | `stale` / `upstream-stale` | error (info when the paper cites nothing from the run) | §8.4 | re-run (exact command shown) or `vouch accept` |

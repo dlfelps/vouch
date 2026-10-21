@@ -364,8 +364,8 @@ class Index:
         return None
 
     def suggest(self, key: str, n: int = 3) -> list[str]:
-        import difflib
-        return difflib.get_close_matches(key, list(self.entries), n=n, cutoff=0.6)
+        from .values import near_keys
+        return near_keys(key, self.entries, n=n)
 
 
 def _claim_extra(c: dict) -> dict:

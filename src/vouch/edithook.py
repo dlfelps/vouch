@@ -20,7 +20,6 @@ outside a vouch project.
 
 from __future__ import annotations
 
-import difflib
 import json
 import re
 from pathlib import Path
@@ -234,7 +233,8 @@ def check_file(path: Path, notes: list[str] | None = None) -> list[str] | None:
             owed.append(f"{c.key} (recorded by {scripted[c.key][0]}:{scripted[c.key][1]} "
                         f"when it runs)")
             continue
-        sugg = difflib.get_close_matches(c.key, list(keys), n=3, cutoff=0.6)
+        from .values import near_keys
+        sugg = near_keys(c.key, keys)
         problems.append((c.line, f"unknown key {c.key}: no run, definition or vouch.expect "
                                  f"provides it" + (f" (did you mean {', '.join(sugg)}?)" if sugg
                                                    else "; find it with `vouch search`")))
