@@ -121,6 +121,7 @@ class Tracker:
         self._cfg = None
         self._reported = False
         self._exit_hook = False
+        self._disable = None                     # sys.monitoring.DISABLE, kept by start()
 
     # -- which files are worth watching ---------------------------------------------
 
@@ -169,13 +170,17 @@ class Tracker:
                         return None
         except Exception:  # a tracking bug must never break the experiment
             pass
-        return sys.monitoring.DISABLE
+        # Kept on the instance, not read from `sys`: at interpreter shutdown this module's
+        # globals are cleared to None while the callback can still fire (a weakref callback
+        # in logging's teardown), and `sys.monitoring.DISABLE` raised there, printing an
+        # AttributeError as every such process exited.
+        return self._disable
 
     def _on_return(self, code, offset, retval):
         t = self.auto.get(code)
         if t is not None:
-            end = perf_counter()
-            try:
+            try:                       # inside: perf_counter, like sys, is None at shutdown
+                end = perf_counter()
                 got = self.pending.pop(id(sys._getframe(1)), None)
                 if got is not None:
                     t.record_safely(got[0], retval, got[1], end - got[2])
@@ -322,6 +327,7 @@ class Tracker:
             self.why_not = "no free sys.monitoring tool id"
             return
         self._roots = _system_roots()
+        self._disable = mon.DISABLE
         try:
             mon.use_tool_id(tool, "vouch")
             mon.register_callback(tool, mon.events.PY_START, self._on_start)

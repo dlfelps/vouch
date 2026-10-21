@@ -298,3 +298,24 @@ def test_unit_of_qualname_edge_cases():
     assert unit_of_qualname("<generic parameters of f>") == MODULE
     assert unit_of_qualname("Model.fit.<locals>.<listcomp>") == "Model.fit"
     assert unit_of_qualname("A.B.m") == "A.B.m"
+
+
+def test_the_callbacks_survive_interpreter_shutdown():
+    """At interpreter shutdown a module's globals are cleared to None while a monitoring
+    callback can still fire (a weakref callback in logging's teardown, say). _on_start's
+    `return sys.monitoring.DISABLE` then raised, and every process that had imported vouch
+    and used logging handlers (pytest itself) printed "AttributeError: 'NoneType' object has
+    no attribute 'monitoring'" as it exited. The callbacks are rebuilt here over a copy of
+    the module's globals as shutdown leaves them; the live tracker is not touched."""
+    import types
+
+    import vouch.tracing as tracing
+    tr = tracing.Tracker()
+    tr._disable = sys.monitoring.DISABLE           # what start() keeps on the instance
+    dead = {**vars(tracing), "sys": None, "perf_counter": None}
+    on_start = types.FunctionType(tracing.Tracker._on_start.__code__, dead)
+    on_return = types.FunctionType(tracing.Tracker._on_return.__code__, dead)
+    code = test_the_callbacks_survive_interpreter_shutdown.__code__
+    tr.auto[code] = object()                       # a [[track]] function: _on_return times it
+    assert on_start(tr, code, 0) is tr._disable
+    on_return(tr, code, 0, None)                   # must not raise either
