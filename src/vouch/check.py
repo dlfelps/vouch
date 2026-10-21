@@ -96,9 +96,16 @@ def collect(ctx: Context) -> list[Issue]:
                                     rel, fix="vouch build", fix_kind="build"))
                 continue
             if comparable(path, disk) != comparable(path, content):
-                issues.append(Issue("out-of-sync", "error",
-                                    f"{rel} does not match the recorded values (run `vouch build`; "
-                                    f"never edit generated files)", rel,
+                # A paper edit that only shifts citations to other lines changes nothing but
+                # the provenance CSV's cited_at column. This used to read "does not match the
+                # recorded values", which sent the reader looking for a value that had moved.
+                if comparable(path, disk, sites=False) == comparable(path, content, sites=False):
+                    msg = (f"{rel} lists citations at their old lines: the paper's citations "
+                           f"moved since the last build, and no value changed (run `vouch build`)")
+                else:
+                    msg = (f"{rel} does not match the recorded values (run `vouch build`; "
+                           f"never edit generated files)")
+                issues.append(Issue("out-of-sync", "error", msg, rel,
                                     fix="vouch build", fix_kind="build"))
 
     # The paper's copy of vouch.sty. `vouch init` copies it, and an upgraded vouch left the

@@ -594,17 +594,21 @@ def plan(cfg: Config, *, check_env: bool = True, only: list[dict] | None = None,
     return ctx
 
 
-def comparable(path: Path, content: str) -> str:
-    """Content with the working-tree-dependent parts (run freshness) removed."""
+def comparable(path: Path, content: str, *, sites: bool = True) -> str:
+    """Content with the working-tree-dependent parts (run freshness) removed. With
+    ``sites=False`` a provenance CSV's ``cited_at`` column is blanked too, so that a paper
+    edit that only moved citations to other lines compares equal."""
     if path.suffix == ".tex":
         return "\n".join(ln for ln in content.splitlines() if not ln.startswith(r"\vouch@state{"))
     if path.suffix == ".csv":
         rows = list(csv.reader(io.StringIO(content)))
-        if rows and "freshness" in rows[0]:
-            i = rows[0].index("freshness")
-            for r in rows:
-                if len(r) > i:
-                    r[i] = ""
+        blank = ["freshness"] + ([] if sites else ["cited_at"])
+        for col in blank:
+            if rows and col in rows[0]:
+                i = rows[0].index(col)
+                for r in rows:
+                    if len(r) > i:
+                        r[i] = ""
         return "\n".join(",".join(r) for r in rows)
     return content
 

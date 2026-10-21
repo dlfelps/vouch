@@ -104,6 +104,38 @@ def test_hand_edited_values_file_is_out_of_sync(example, capsys):
     assert code == 1 and rep["issues"][0]["check"] == "out-of-sync"
 
 
+def with_provenance_csv(root):
+    edit(root / "vouch.toml", 'main = "paper/main.tex"\n',
+         'main = "paper/main.tex"\nprovenance_csv = "paper/vouch-provenance.csv"\n')
+
+
+def test_prose_edit_that_moves_citations_says_so(example, capsys):
+    """A paper edit that only shifts citations to new lines leaves the provenance CSV's
+    `cited_at` column stale. check used to say the CSV "does not match the recorded values",
+    which sends the reader looking for a moved value when none moved."""
+    with_provenance_csv(example)
+    built(example)
+    edit(example / "paper/main.tex", "\\maketitle\n", "\\maketitle\n\nAn added sentence.\n")
+    code, rep = check_json(example, capsys)
+    assert code == 1
+    issue = next(i for i in rep["issues"] if i["check"] == "out-of-sync")
+    assert "recorded values" not in issue["message"]
+    assert "citations moved" in issue["message"] and "no value changed" in issue["message"]
+    assert issue["fix"] == {"kind": "build", "value": "vouch build"}
+
+
+def test_hand_edited_csv_value_still_reads_as_a_value_mismatch(example, capsys):
+    with_provenance_csv(example)
+    built(example)
+    csv_path = example / "paper/vouch-provenance.csv"
+    text = csv_path.read_text(encoding="utf-8")
+    assert "80.2" in text
+    csv_path.write_text(text.replace("80.2", "85.0", 1), encoding="utf-8", newline="\n")
+    code, rep = check_json(example, capsys)
+    issue = next(i for i in rep["issues"] if i["check"] == "out-of-sync")
+    assert "does not match the recorded values" in issue["message"]
+
+
 def test_false_claim(example, capsys):
     rec_path = example / ".vouch/runs/train.json"
     rec = json.loads(rec_path.read_text(encoding="utf-8"))

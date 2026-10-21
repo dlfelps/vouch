@@ -1178,7 +1178,7 @@ Acknowledging moves the baseline and appends an event to `.vouch/history.jsonl` 
 
 ## 10. Provenance CSV
 
-The everyday way to see where a number came from is the PDF's provenance appendix (§7.4). The CSV is the same information as a table, for when there is no draft PDF: a final (double-blind) submission's supplementary material, artifact evaluation, a spreadsheet, or a script. `vouch export --csv PATH` writes it on demand. Setting `provenance_csv` under `[[paper]]` makes every build write it too; it is then committed and checked for `out-of-sync` like the other generated files.
+The everyday way to see where a number came from is the PDF's provenance appendix (§7.4). The CSV is the same information as a table, for when there is no draft PDF: a final (double-blind) submission's supplementary material, artifact evaluation, a spreadsheet, or a script. `vouch export --csv PATH` writes it on demand. Setting `provenance_csv` under `[[paper]]` makes every build write it too; it is then committed and checked for `out-of-sync` like the other generated files. Its `cited_at` column holds file:line sites, so any paper edit that shifts a citation to another line puts it out of sync; `check` then says that the citations moved and no value changed, and keeps "does not match the recorded values" for a difference outside that column.
 
 It has **one row per key the paper cites**, in reading order (order of first citation). Figures cited through `\includegraphics` get rows too. It is deterministic, so a committed copy's diff is readable.
 
