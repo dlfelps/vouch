@@ -177,3 +177,20 @@ def test_strict_makes_lint_fail_the_check(proj):
 def test_numbers_at_the_end_of_a_sentence(project):
     assert literals(project, "The loss is 0.123. It ran for 38. Python 3.13.5 is a version.") \
         == ["0.123", "38"]
+
+
+def test_the_corpus(proj):
+    """tests/corpus/paper.tex gathers the constructs real papers use around numbers that are
+    not results: package options, lengths, column specs, TikZ and pgfplots coordinates, an
+    inline \tikz legend, theorem and algorithm environments, references, URLs, years,
+    comments and verbatim. Three of the false positives found in use (a preamble input,
+    drawing coordinates, an inline \tikz) were constructs like these. Exactly its three
+    SEEDED numbers are results, and only they may be flagged."""
+    from pathlib import Path
+    corpus = Path(__file__).parent / "corpus" / "paper.tex"
+    (proj.root / "paper").mkdir(exist_ok=True)
+    (proj.root / "paper" / "main.tex").write_text(corpus.read_text(encoding="utf-8"),
+                                                  encoding="utf-8")
+    found = sorted((i.check, i.subject) for i in lint_issues(proj))
+    assert found == [("bare-number", "18{,}535"), ("bare-number", "93.2\%"),
+                     ("no-source", "77.7\%")], found

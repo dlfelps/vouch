@@ -198,24 +198,71 @@ def _path_end(src: str, i: int) -> int:
 
 
 def _mask_coordinates(src: str, chars: list[str], start: int, end: int) -> None:
-    """Blank the ( ) and [ ] groups of a drawing's body outside its { } groups."""
-    depth, i = 0, start
+    """Blank a drawing's body, all but the text of its nodes.
+
+    It used to blank only the ( ) and [ ] groups outside { } groups, taking every { } group
+    for a node's text. Many are code: a \\foreach list and its body, the data of
+    \\addplot coordinates {(10,0.61) (20,0.72)}, a plot expression. Their numbers were
+    flagged as typed results (twelve in a test paper's two figures). Now only a node's
+    text (and \\addlegendentry's, and \\put's) is kept, found inside any group, so a number
+    typed into a label is still flagged."""
+    keep: list[tuple[int, int]] = []
+    i = start
     while i < end:
         ch = src[i]
-        if ch == "\\":
+        if ch == "\\":                     # an escaped \{ is not a group
             i += 2
             continue
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth = max(depth - 1, 0)
-        elif depth == 0 and ch in "([":
-            got = balanced(src, i, ch, ")" if ch == "(" else "]")
+        if ch == "{" and _is_node_text(src, start, i):
+            got = balanced(src, i)
             if got is not None and got[1] <= end:
-                _blank(chars, i, got[1])
+                keep.append((i, got[1]))
                 i = got[1]
                 continue
         i += 1
+    at = start
+    for a, b in keep + [(end, end)]:
+        for k in range(at, a):
+            if chars[k] != "\n":
+                chars[k] = " "
+        at = b
+
+
+# What a node's text follows, once options [..], a name or position (..), and `at` are
+# skipped: \node, a path's `node`, \addlegendentry, a picture's \put.
+_TEXT_AFTER = re.compile(r"(?:(?<![A-Za-z@])node|\\addlegendentry|\\put)\s*$")
+
+
+def _is_node_text(src: str, start: int, i: int) -> bool:
+    j = i
+    while True:
+        while j > start and src[j - 1] in " \t\n":
+            j -= 1
+        if j > start and src[j - 1] in ")]":
+            k = _open_before(src, start, j - 1)
+            if k is None:
+                return False
+            j = k
+            continue
+        if src[max(start, j - 2):j] == "at" and (j - 2 <= start or not src[j - 3].isalpha()):
+            j -= 2
+            continue
+        break
+    return _TEXT_AFTER.search(src[max(start, j - 40):j]) is not None
+
+
+def _open_before(src: str, start: int, close: int) -> int | None:
+    """The index of the bracket that ``src[close]`` closes, scanning back to ``start``."""
+    pair = {")": "(", "]": "["}[src[close]]
+    depth = 0
+    for k in range(close, start - 1, -1):
+        if src[k] == src[close]:
+            depth += 1
+        elif src[k] == pair:
+            depth -= 1
+            if depth == 0:
+                return k
+    return None
 
 
 def _skip_ws(src: str, i: int) -> int:

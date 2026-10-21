@@ -186,8 +186,8 @@ after the agent's own edits; after a file is changed by a script, run `vouch lin
 (the same check) on it. `vouch status` ends with when the hook last ran and what it
 found.
 
-Coordinates inside drawing environments (`tikzpicture`, `axis`, ...) are not
-results; node text is still prose and still checked.
+Inside drawing environments (`tikzpicture`, `axis`, ...) only the text of nodes is
+prose, and still checked; coordinates, loops and plotted data are not results.
 
 ## Running vouch in a uv project
 
