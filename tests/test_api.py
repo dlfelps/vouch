@@ -425,7 +425,10 @@ def test_fresh_lets_a_script_skip_a_run_whose_record_stands(project):
     assert "SKIPPED" in second.stdout and "ex_search is fresh" in second.stderr
     exp = project.root / "exp.py"
     edit(exp, 'vouch.record("ex.quick", 1,', 'vouch.record("ex.quick", 2,')
-    assert "SKIPPED" in project.run("exp.py", check=True).stdout      # the slow part stands
+    skipped = "SKIPPED" in project.run("exp.py", check=True).stdout
+    # the slow part stands where freshness is per function (sys.monitoring, 3.12+); before,
+    # it is per file, and an edit anywhere in the script makes every run of it stale
+    assert skipped == (sys.version_info >= (3, 12))
     edit(exp, 'vouch.record("ex.left", 456,', 'vouch.record("ex.left", 457,')
     assert "SKIPPED" not in project.run("exp.py", check=True).stdout  # its code changed
     edit(exp, '"n": 3}):\n    print', '"n": 4}):\n    print')

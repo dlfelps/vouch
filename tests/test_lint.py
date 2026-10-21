@@ -180,7 +180,7 @@ def test_numbers_at_the_end_of_a_sentence(project):
 
 
 def test_the_corpus(proj):
-    """tests/corpus/paper.tex gathers the constructs real papers use around numbers that are
+    r"""tests/corpus/paper.tex gathers the constructs real papers use around numbers that are
     not results: package options, lengths, column specs, TikZ and pgfplots coordinates, an
     inline \tikz legend, theorem and algorithm environments, references, URLs, years,
     comments and verbatim. Three of the false positives found in use (a preamble input,
@@ -192,5 +192,5 @@ def test_the_corpus(proj):
     (proj.root / "paper" / "main.tex").write_text(corpus.read_text(encoding="utf-8"),
                                                   encoding="utf-8")
     found = sorted((i.check, i.subject) for i in lint_issues(proj))
-    assert found == [("bare-number", "18{,}535"), ("bare-number", "93.2\%"),
-                     ("no-source", "77.7\%")], found
+    assert found == [("bare-number", "18{,}535"), ("bare-number", r"93.2\%"),
+                     ("no-source", r"77.7\%")], found
