@@ -126,6 +126,58 @@ def test_prose_edit_that_moves_citations_says_so(example, capsys):
     assert issue["severity"] == "warning" and code == 0
 
 
+def moved(example):
+    """The example built, then its centroid classifier changed and re-run: its values have
+    moved, and no build has seen them yet."""
+    built(example)
+    edit(example / "models.py", CENTROID, MANHATTAN)
+    rerun(example)
+
+
+def test_build_reports_a_change_in_full_once_then_as_a_count(example, capsys):
+    """Changes awaiting acknowledgment were printed in full, with their sentences, on every
+    build: one paper had 46 of them, hundreds of lines on each build, burying anything new."""
+    moved(example)
+    capsys.readouterr()
+    assert cli.main(["build", "--root", str(example)]) == 0
+    first = capsys.readouterr().out
+    assert "CHANGED VALUES" in first and "toy.centroid.acc" in first
+    assert cli.main(["build", "--root", str(example)]) == 0
+    again = capsys.readouterr().out
+    assert "CHANGED VALUES" not in again and "Nearest-centroid reaches" not in again
+    assert "still unacknowledged" in again and "vouch changes" in again
+
+
+def test_check_collapses_changes_a_build_already_reported(example, capsys):
+    moved(example)
+    assert cli.main(["build", "--root", str(example)]) == 0       # reports them
+    capsys.readouterr()
+    code, out = check(example, capsys=capsys)
+    assert code == 0
+    assert "toy.centroid.acc:" not in out                        # no line per value ...
+    assert "already reported" in out and "vouch changes" in out   # ... one for them all
+    code, rep = check_json(example, capsys)                       # JSON keeps every one
+    assert any(i["check"] in ("changed", "suspicious") and i["subject"] == "toy.centroid.acc"
+               for i in rep["issues"])
+
+
+def test_check_prints_changes_no_build_has_reported(example, capsys):
+    moved(example)
+    assert cli.main(["build", "--root", str(example), "--no-notify"]) == 0
+    capsys.readouterr()
+    code, out = check(example, capsys=capsys)
+    assert "toy.centroid.acc:" in out and "already reported" not in out
+
+
+def test_a_failed_check_names_its_errors_last(example, capsys):
+    """Errors print first, so a long list of warnings scrolled them away, and the last line
+    said only "FAILED: 1 error(s)"."""
+    code, out = check(example, capsys=capsys)                     # never built
+    assert code == 1
+    last = out.strip().splitlines()[-1]
+    assert last.startswith("FAILED") and "out-of-sync" in last
+
+
 def test_hand_edited_csv_value_still_reads_as_a_value_mismatch(example, capsys):
     with_provenance_csv(example)
     built(example)

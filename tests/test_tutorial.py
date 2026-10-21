@@ -158,7 +158,10 @@ def test_the_tutorial_end_to_end(tutorial, capsys):
     assert "crossover is cited here, but its definition failed" in out
     code, out = vouch(root, "check", capsys=capsys)
     assert code == 1
-    assert out.count("false-claim") == 2 and "derive-error" in out and "unknown-key" not in out
+    issue_lines = [ln for ln in out.splitlines() if not ln.startswith("FAILED")]
+    assert sum("false-claim" in ln for ln in issue_lines) == 2
+    assert "derive-error" in out and "unknown-key" not in out
+    assert "false-claim (knn_wins_large)" in out.strip().splitlines()[-1]   # named at the end
 
     # ... and back: the same numbers as before, nothing left to acknowledge
     exp.write_text(exp.read_text(encoding="utf-8").replace("K = 1  ", "K = 15 "), encoding="utf-8")

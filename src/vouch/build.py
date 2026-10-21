@@ -72,6 +72,8 @@ class BuildResult:
     auto_acked: list[ch.Change]
     notified: list[ch.Change]
     notify_error: str | None
+    # fingerprints of the changes reported by an earlier build: printed as one count
+    reported_before: set[str] = dataclasses.field(default_factory=set)
 
     @property
     def plans(self) -> list[PaperPlan]:
@@ -649,5 +651,6 @@ def build(cfg: Config, *, notify: bool = True) -> BuildResult:
     written += write_catalog(ctx)
     from .edithook import write_index
     write_index(ctx)                      # what `vouch hook claude` reads after every edit
+    before = ch.reported(cfg)             # read before this build marks its own as reported
     fresh, err = ch.notify(cfg, ctx.changes) if notify else ([], None)
-    return BuildResult(ctx, written, unchanged, acked, fresh, err)
+    return BuildResult(ctx, written, unchanged, acked, fresh, err, before)

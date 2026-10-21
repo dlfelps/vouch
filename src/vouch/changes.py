@@ -321,6 +321,23 @@ def _fingerprint(ch: Change) -> str:
     return json.dumps([ch.key, ch.new.raw, ch.new.source], sort_keys=True)
 
 
+def reported(cfg: Config) -> set[str]:
+    """The fingerprints of the changes a build has already reported (``notify``).
+
+    `build` and `check` print these as one count, not a block each: with dozens awaiting
+    acknowledgment, the full report on every build and every commit buried what was new.
+    A change that moves again has a new fingerprint and is reported in full again.
+    """
+    try:
+        return set(json.loads((cfg.store / NOTIFIED).read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        return set()
+
+
+def was_reported(ch: Change, seen: set[str]) -> bool:
+    return _fingerprint(ch) in seen
+
+
 def notify(cfg: Config, changes: list[Change]) -> tuple[list[Change], str | None]:
     """Log newly detected pending changes and run ``on_change`` for them, once each.
 

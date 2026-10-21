@@ -12,7 +12,7 @@ $ vouch check [--strict] [--quiet] [--verbose] [--json] [--no-env] [--paper FILE
 | Flag | Meaning |
 |---|---|
 | `--strict` | treat warnings as errors (CI, agents) |
-| `--quiet` | print only problems; pending `expect()` values, the planned state of a draft, are one line pointing at `vouch todo` (the pre-commit hook uses this) |
+| `--quiet` | print only problems; pending `expect()` values, the planned state of a draft, are one line pointing at `vouch todo` (the pre-commit hook uses this). Changes a build has already reported are one line in either mode |
 | `--verbose` | also print informational notes |
 | `--json` | the `vouch/1` JSON envelope |
 | `--no-env` | skip the package-version drift check |

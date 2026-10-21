@@ -238,7 +238,9 @@ def collect(ctx: Context) -> list[Issue]:
                                         f"{c.key} has no description (add desc= or a [metrics] "
                                         f"pattern)", c.file, c.line, subject=c.key))
 
-    # changes to cited values; cells cited only through a table are one issue per table
+    # changes to cited values; cells cited only through a table are one issue per table.
+    # detail["reported"]: a build already reported it, so the terminal shows it as a count
+    seen = ch.reported(cfg)
     by_table: dict[str, list] = {}
     for change in ctx.changes:
         via = {w.table for w in change.citations}
@@ -260,7 +262,8 @@ def collect(ctx: Context) -> list[Issue]:
                             subject=table, where_all=where, fix_kind="human",
                             fix=f"re-read the table and what the text says about it, then: "
                                 f"vouch ack {table}",
-                            detail={"cells": [c.to_json() for c in cells]}))
+                            detail={"cells": [c.to_json() for c in cells],
+                                    "reported": all(ch.was_reported(c, seen) for c in cells)}))
     grouped = {c.key for cells in by_table.values() for c in cells}
     for change in ctx.changes:
         if change.key in grouped:
@@ -273,7 +276,8 @@ def collect(ctx: Context) -> list[Issue]:
                                 subject=change.key, where_all=where, fix_kind="human",
                                 fix=f"look at the figure and re-read its caption and the text "
                                     f"about it, then: vouch ack {change.key}",
-                                detail=change.to_json()))
+                                detail={**change.to_json(),
+                                        "reported": ch.was_reported(change, seen)}))
         elif change.pending:
             old = " | ".join(ch.readable(p) for p in (change.old or {}).get("plain", [])) or "?"
             new = " | ".join(ch.readable(p) for p in change.new.plain) or "?"
@@ -283,7 +287,8 @@ def collect(ctx: Context) -> list[Issue]:
                     else f" ({'; '.join(change.reasons)})"
             issues.append(Issue(change.cls, "warning", msg, subject=change.key, where_all=where,
                                 fix=f"re-read the sentences that cite it, then: vouch ack {change.key}",
-                                fix_kind="human", detail=change.to_json()))
+                                fix_kind="human", detail={**change.to_json(),
+                                                          "reported": ch.was_reported(change, seen)}))
         else:
             issues.append(Issue(change.cls, "info",
                                 f"{change.key}: {change.cls} (acknowledged at the next build)",

@@ -95,9 +95,20 @@ def _old_new(c) -> tuple[str, str]:
     return old, new
 
 
-def print_changes(changes: list, *, heading: bool = True) -> None:
+def print_changes(changes: list, *, heading: bool = True, seen: set[str] | None = None) -> None:
+    """The change report. With ``seen`` (what an earlier build reported), only the changes
+    not yet reported get a block; the rest are one line. Printed in full on every build,
+    46 changes awaiting acknowledgment ran to hundreds of lines and buried anything new."""
     from .values import natural_key
     pending = [c for c in changes if c.pending]
+    if seen is not None:
+        old = [c for c in pending if ch.was_reported(c, seen)]
+        pending = [c for c in pending if not ch.was_reported(c, seen)]
+        if old:
+            C.out("")
+            C.out(f"{len(old)} change{'s' if len(old) != 1 else ''} reported before "
+                  f"{'are' if len(old) != 1 else 'is'} still unacknowledged: `vouch changes` "
+                  f"lists them, `vouch review` steps through them")
     if not pending:
         return
     if heading:
@@ -285,7 +296,7 @@ def _print_build(cfg: Config, res) -> None:
     for a in hidden:
         C.out(f"  · hidden         {a.key} moved within the printed rounding "
               f"({ch.describe_delta(a) or 'tiny change'}); logged to .vouch/history.jsonl")
-    print_changes(res.ctx.changes)
+    print_changes(res.ctx.changes, seen=res.reported_before)
     if res.notify_error:
         C.out(f"  ! {res.notify_error}")
 
@@ -388,7 +399,14 @@ def cmd_check(args) -> int:
     # and are printed in full.
     owed = [i for i in shown if args.quiet and i.check == "pending" and i.severity != "error"]
     shown = [i for i in shown if i not in owed]
-    if not args.quiet or shown or owed:
+    # Changes a build already reported, in full, with their sentences, are one line here:
+    # listed one by one they ran to hundreds of lines on every check and every commit, and
+    # buried what was new. They stay counted until acknowledged; under --strict they are
+    # errors and are printed in full. JSON output keeps every one.
+    known = [i for i in shown if i.check in _CHANGE_CHECKS and i.severity == "warning"
+             and (i.detail or {}).get("reported")]
+    shown = [i for i in shown if i not in known]
+    if not args.quiet or shown or owed or known:
         C.out(f"vouch check: {', '.join(s['papers'])} · {s['citations']} citations · "
               f"{s['runs_fresh']}/{s['runs_cited']} cited runs fresh")
     for i in shown:
@@ -397,6 +415,12 @@ def cmd_check(args) -> int:
         keys = sorted({i.subject for i in owed if i.subject})
         C.out(f"  ! pending        {len(keys)} value(s) still owed, cited {len(owed)} time(s): "
               f"`vouch todo` lists them with the command that produces each")
+    if known:
+        kinds = {c: sum(1 for i in known if i.check == c) for c in _CHANGE_CHECKS}
+        what = ", ".join(f"{n} {c}" for c, n in kinds.items() if n)
+        C.out(f"  ! changed        {len(known)} change(s) already reported by `vouch build` "
+              f"await acknowledgment ({what}): `vouch changes` lists them, `vouch review` "
+              f"steps through them")
     infos = sum(1 for i in rep.issues if i.severity == "info")
     if infos and not args.verbose and not args.quiet:
         C.out(f"  · {infos} note(s) (--verbose to show)")
@@ -405,8 +429,17 @@ def cmd_check(args) -> int:
             w = len(rep.warnings)
             C.out(f"{SYM_OK} OK" + (f" ({w} warning{'s' if w != 1 else ''})" if w else ""))
         return EXIT_OK
-    C.out(f"FAILED: {len(rep.errors)} error(s), {len(rep.warnings)} warning(s)")
+    # Name the errors on the last line: they print first, and a long list of warnings
+    # scrolled them away, leaving only "FAILED: 1 error(s)" in view.
+    names = list(dict.fromkeys(                    # one entry per check and subject
+        f"{i.check} ({i.subject or i.file})" if (i.subject or i.file) else i.check
+        for i in rep.errors))
+    listed = ", ".join(names[:5]) + (f", +{len(names) - 5} more" if len(names) > 5 else "")
+    C.out(f"FAILED: {len(rep.errors)} error(s): {listed}; {len(rep.warnings)} warning(s)")
     return EXIT_FAIL
+
+
+_CHANGE_CHECKS = ("suspicious", "changed", "figure-changed")
 
 
 SYM_OK = "✓"

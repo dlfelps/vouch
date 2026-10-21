@@ -52,7 +52,16 @@ reversed.
    The most important changes come first: claims that stopped holding
    (`NOW FALSE`), then suspicious moves, then ordinary changes, then figures.
 
-2. **`vouch check`** keeps listing pending changes until they are acknowledged. With `--strict` (CI, agents, optionally pre-commit) they block.
+   A change gets this block once, from the build that first sees it. Later builds
+   count the changes already reported in one line until each is acknowledged, or
+   moves again:
+
+   ```
+   46 changes reported before are still unacknowledged: `vouch changes` lists them,
+   `vouch review` steps through them
+   ```
+
+2. **`vouch check`** keeps listing pending changes until they are acknowledged. Those a build has already reported are one line, with their number by class; `--json` keeps every one. With `--strict` (CI, agents, optionally pre-commit) they block, and are printed in full.
 3. **The PDF** highlights pending values, and their tooltips say what they were.
 4. **`vouch changes [--json | --md FILE]`** gives the full pending list. `--md` writes a shareable review report.
 5. **The `on_change` hook.** If `changes.on_change` is set, `vouch build` runs that command once per newly detected batch and sends the changes as JSON on stdin.

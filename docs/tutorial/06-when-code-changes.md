@@ -24,7 +24,7 @@ vouch check: paper/main.tex · 22 citations · 0/1 cited runs fresh
   ✗ stale          run experiment: experiment.py::<module> changed since the run; the paper cites crossover, gap, experiment.param.noise, best_possible (+14 more)
                    fix: python experiment.py   (or, if the result cannot have changed: vouch accept experiment --why "...")
   ✗ figure-stale   paper/figures/learning_curve.pdf comes from run experiment, which is stale
-FAILED: 2 error(s), 0 warning(s)
+FAILED: 2 error(s): stale (run:experiment), figure-stale (paper/figures/learning_curve.pdf); 0 warning(s)
 ```
 
 Only real code changes count. Editing a comment or a docstring, or reformatting,
@@ -71,7 +71,7 @@ $ vouch check
   ! suspicious     table learning_curve: 12 cell(s) changed, 8 POSSIBLE PROBLEM(s): ...
                    fix: re-read the table and what the text says about it, then: vouch ack learning_curve
   ...
-FAILED: 4 error(s), 9 warning(s)
+FAILED: 4 error(s): derive-error (crossover), false-claim (linear_wins_small), false-claim (knn_wins_large); 9 warning(s)
 ```
 
 ![vouch check failing after a code change, with stale runs and false claims](../assets/images/6_check_fail.png)
