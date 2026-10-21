@@ -115,6 +115,21 @@ def test_a_failing_command_records_nothing(proj, capsys):
     assert cli.main(["run", "jl"]) == 2                                  # no command
 
 
+def test_a_bare_python_is_the_one_on_path(proj, monkeypatch):
+    """`vouch run ID -- python x.py` runs the `python` that PATH names, as the docs say.
+
+    On Windows, process creation looks in the *parent's own directory* before PATH. Inside
+    a virtual environment the process running vouch is the base interpreter (the venv's
+    `Scripts/python.exe` only launches it), so a bare `python` started the base install,
+    which cannot import the project's packages, even under `uv run`, which puts the venv
+    first on PATH. Here PATH names the test's own interpreter first."""
+    from pathlib import Path
+    monkeypatch.setenv("PATH", str(Path(sys.executable).parent) + __import__("os").pathsep
+                       + __import__("os").environ.get("PATH", ""))
+    proj.write("probe.py", "import sys\nopen('prefix.txt', 'w').write(sys.prefix)\n")
+    assert cli.main(["run", "probe", "--", "python", "probe.py"]) == 0
+    assert Path((proj.root / "prefix.txt").read_text()).resolve() == Path(sys.prefix).resolve()
+
 
 def test_import_registers_a_file_with_declared_provenance(proj, capsys):
     proj.write("vouch.toml", '[[paper]]\nmain = "paper/main.tex"\n'

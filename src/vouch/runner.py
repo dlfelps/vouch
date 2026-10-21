@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import sysconfig
@@ -188,8 +189,15 @@ def _executable(first: str, root: Path) -> str:
     as it was typed, so that the re-run command stays portable.
     """
     p = Path(first)
-    if p.is_absolute() or not (os.sep in first or (os.altsep and os.altsep in first)):
+    if p.is_absolute():
         return first
+    if not (os.sep in first or (os.altsep and os.altsep in first)):
+        # A bare name is looked up on PATH, as the docs say. Left to Windows' process
+        # creation, it was looked up first in the directory of the process running vouch:
+        # inside a virtual environment that is the *base* interpreter (the venv's
+        # Scripts/python.exe only launches it), so `vouch run -- python x.py` ran the base
+        # install, without the project's packages, even when PATH named the venv first.
+        return shutil.which(first) or first
     for base in (Path.cwd(), root):
         cand = base / p
         names = [cand, cand.with_name(cand.name + ".exe")] if os.name == "nt" and \
