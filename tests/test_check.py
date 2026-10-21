@@ -117,11 +117,13 @@ def test_prose_edit_that_moves_citations_says_so(example, capsys):
     built(example)
     edit(example / "paper/main.tex", "\\maketitle\n", "\\maketitle\n\nAn added sentence.\n")
     code, rep = check_json(example, capsys)
-    assert code == 1
     issue = next(i for i in rep["issues"] if i["check"] == "out-of-sync")
     assert "recorded values" not in issue["message"]
     assert "citations moved" in issue["message"] and "no value changed" in issue["message"]
     assert issue["fix"] == {"kind": "build", "value": "vouch build"}
+    # Only the line numbers are stale, and every value is right: a warning, which the next
+    # build clears. As an error it failed every check, and every commit, after a prose edit.
+    assert issue["severity"] == "warning" and code == 0
 
 
 def test_hand_edited_csv_value_still_reads_as_a_value_mismatch(example, capsys):

@@ -99,14 +99,19 @@ def collect(ctx: Context) -> list[Issue]:
                 # A paper edit that only shifts citations to other lines changes nothing but
                 # the provenance CSV's cited_at column. This used to read "does not match the
                 # recorded values", which sent the reader looking for a value that had moved.
-                if comparable(path, disk, sites=False) == comparable(path, content, sites=False):
+                # Only the line numbers are stale then, and every value is right, so it is a
+                # warning that the next build clears; as an error it failed every check, and
+                # every commit, after any prose edit.
+                sites_only = (comparable(path, disk, sites=False)
+                              == comparable(path, content, sites=False))
+                if sites_only:
                     msg = (f"{rel} lists citations at their old lines: the paper's citations "
                            f"moved since the last build, and no value changed (run `vouch build`)")
                 else:
                     msg = (f"{rel} does not match the recorded values (run `vouch build`; "
                            f"never edit generated files)")
-                issues.append(Issue("out-of-sync", "error", msg, rel,
-                                    fix="vouch build", fix_kind="build"))
+                issues.append(Issue("out-of-sync", "warning" if sites_only else "error", msg,
+                                    rel, fix="vouch build", fix_kind="build"))
 
     # The paper's copy of vouch.sty. `vouch init` copies it, and an upgraded vouch left the
     # copy behind with nothing said, so a paper could be built against macros the

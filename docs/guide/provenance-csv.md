@@ -11,7 +11,7 @@ supplementary material, artifact evaluation, a spreadsheet, or a script.
 `[[paper]]` makes every build write it too; it is then committed and checked
 for `out-of-sync` like the other generated files. Its `cited_at` column holds
 file:line sites, so a paper edit that shifts citations to other lines puts it
-out of sync too: `vouch check` says that the citations moved and no value
+out of sync too: `vouch check` warns that the citations moved and no value
 changed, and `vouch build` brings the column up to date.
 
 It has **one row per key the paper cites**, in reading order. Figures cited

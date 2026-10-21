@@ -15,7 +15,7 @@ code.
 | `derive-error` | error | a values module failed to import, or a definition raised, read an unknown key, read a failed definition, returned the wrong type, or was defined twice | fix the definition, then `vouch build` |
 | `unknown-key` | error | a cited key exists nowhere (did-you-mean suggestions included) | fix the key, or `record`/`derive`/`expect` it |
 | `key-conflict` | error | two sources produce one key | rename one |
-| `out-of-sync` | error | generated files or `derived.json` differ from what `build` would write | `vouch build` |
+| `out-of-sync` | error | generated files or `derived.json` differ from what `build` would write; a warning when only the provenance CSV's citation lines moved | `vouch build` |
 | `stale` / `upstream-stale` | error (info when the paper cites nothing from the run) | see [Freshness](freshness.md) | re-run (exact command shown) or `vouch accept` |
 | `tampered` / `incomplete` | error | see [Freshness](freshness.md) | re-run |
 | `untracked-input` | error | a derivation reads a file no run produced or imported, and not listed as `external` | produce it in a run, `vouch import` it, or declare it `external` |
