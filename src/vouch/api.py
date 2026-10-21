@@ -1051,6 +1051,46 @@ def active_run() -> Run:
     return _implicit_run()
 
 
+def fresh(run_id: str, params: Any = None) -> bool:
+    """Whether run ``run_id``'s record still stands, so that a script may skip the run.
+
+    True when the run is recorded, complete, and fresh (cosmetic or accepted count too):
+    the code it executed, its inputs and its artifacts are unchanged (SPEC §8). Freshness
+    does not cover parameters, so pass ``params`` when they can change; each must match the
+    recorded value. A run is the whole block, so a quick change to one part of a script
+    used to re-run a slow part whose result could not have changed. Opt in only for a run
+    whose result is determined by its code, inputs and parameters (seeded): skipping is
+    then the same as re-running.
+
+    ``if not vouch.fresh("sweep", params=cfg): with vouch.run("sweep", params=cfg): ...``
+    """
+    from .freshness import assess
+    from .store import read_record, record_path
+    cfg = _project().config
+    path = record_path(cfg.store, run_id)
+    try:
+        rec = read_record(path)
+    except (OSError, ValueError):
+        return False
+    if rec.get("status") != "complete":
+        return False
+    if params is not None:
+        mapping = as_mapping(params)
+        if mapping is None:
+            return False
+        recorded = rec.get("params") or {}
+        for k, v in flatten(mapping).items():
+            if recorded.get(sanitize_key(k)) != encode_param(v):
+                return False
+    st = assess(cfg, {run_id: rec}, check_env=False).get(run_id)
+    if st is None or st.state not in ("fresh", "cosmetic", "accepted"):
+        return False
+    _warn(f"run {run_id} is fresh (its code and inputs"
+          + (" and parameters" if params is not None else "")
+          + " are unchanged): its record stands")
+    return True
+
+
 def run(run_id: str, params: Any = None, prefix: str | None = None) -> Run:
     """An explicit run: ``with vouch.run("cifar_resnet", params=args) as run: ...``."""
     return Run(run_id, params=params, prefix=prefix)

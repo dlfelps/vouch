@@ -394,3 +394,39 @@ def test_a_run_is_marked_while_it_records(project):
     assert "AFTER False" in proc.stdout and "DISCARDED False" in proc.stdout
     assert "IMPLICIT True" in proc.stdout                    # the implicit run, while it lasts
     assert not (project.root / ".vouch/cache/running/exp.json").exists()   # gone at exit
+
+
+def test_fresh_lets_a_script_skip_a_run_whose_record_stands(project):
+    """A run is the whole script, so a quick change to one part re-ran a slow part whose
+    result could not have changed (21 minutes, for a claim taking milliseconds).
+    vouch.fresh(id) says whether a run's record still stands, so the script can skip it."""
+    from conftest import edit
+    project.write("exp.py", """
+        import vouch
+
+        def search():
+            vouch.record("ex.left", 456, desc="the slow part")
+
+        def quick():
+            vouch.record("ex.quick", 1, desc="the quick part")
+
+        if vouch.fresh("ex_search", params={"n": 3}):
+            print("SKIPPED")
+        else:
+            with vouch.run("ex_search", params={"n": 3}):
+                search()
+        with vouch.run("ex_quick"):
+            quick()
+        print("UNKNOWN", vouch.fresh("no_such_run"))
+    """)
+    first = project.run("exp.py", check=True)
+    assert "SKIPPED" not in first.stdout and "UNKNOWN False" in first.stdout
+    second = project.run("exp.py", check=True)
+    assert "SKIPPED" in second.stdout and "ex_search is fresh" in second.stderr
+    exp = project.root / "exp.py"
+    edit(exp, 'vouch.record("ex.quick", 1,', 'vouch.record("ex.quick", 2,')
+    assert "SKIPPED" in project.run("exp.py", check=True).stdout      # the slow part stands
+    edit(exp, 'vouch.record("ex.left", 456,', 'vouch.record("ex.left", 457,')
+    assert "SKIPPED" not in project.run("exp.py", check=True).stdout  # its code changed
+    edit(exp, '"n": 3}):\n    print', '"n": 4}):\n    print')
+    assert "SKIPPED" not in project.run("exp.py", check=True).stdout  # another parameter

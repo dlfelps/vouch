@@ -48,6 +48,31 @@ with vouch.run("cifar_resnet", params=args) as run:
 - **Parameters.** `params=` accepts a dict, an `argparse.Namespace`, a dataclass, or any object with `to_dict()`/`to_container()` (OmegaConf, Pydantic). Each is citable as `<run>.param.<name>`.
 - **Command.** `sys.argv` and the interpreter are recorded, which is what gives `vouch status` its exact re-run command.
 
+**A slow part and a quick one.** A run is its whole block, so a quick change to a script
+re-ran its slow part too. Give each part a run of its own, with its body in a function:
+freshness is tracked per function (Python 3.12 and later; per file before, so use two
+scripts there), and an edit inside one function leaves the other run fresh. An edit to
+the module-level code around them changes the script's `<module>` unit, which both runs
+executed, and makes both stale. Then skip the slow run while its record stands:
+
+```python
+def search():                     # the slow part: twenty minutes
+    vouch.record("examples.search.left", count_left(), desc="...")
+
+def examples():                   # the quick part: milliseconds
+    vouch.claim("examples.cascade", table_matches(), desc="...")
+
+if not vouch.fresh("examples_search"):
+    with vouch.run("examples_search"):
+        search()
+with vouch.run("examples"):
+    examples()
+```
+
+`vouch.fresh` compares parameters only when it is given them, `vouch.fresh(id,
+params=args)`; it is for runs whose result their code, inputs and parameters
+determine.
+
 ## Recording everything at once: `record_all`
 
 ```python
@@ -209,6 +234,7 @@ match.
 | Call | Purpose |
 |---|---|
 | `vouch.run(id, params=None, prefix=None)` | Context manager for an explicit run. `prefix` is prepended to every key recorded in the run. |
+| `vouch.fresh(id, params=None)` → bool | Whether run `id`'s record still stands: recorded, complete and fresh (its code, inputs and artifacts unchanged; cosmetic or accepted count), with each of `params` equal to its recorded value. Lets a script skip a slow run whose result cannot have changed. Opt in only for a deterministic (seeded) run. |
 | `vouch.record(key, value, *, fmt=None, unit=None, desc=None, better=None)` → value | Record a value. `better ∈ {"higher", "lower", None}`. |
 | `vouch.record_all(values, *, prefix=None, fmt=None, desc=None, …)` → values | Record every value in a dict, DataFrame or results file in one call. |
 | `vouch.claim(key, holds, *, desc=None, values=None)` → holds | Record a boolean claim. |

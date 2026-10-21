@@ -36,7 +36,8 @@ except ImportError:
     __version__ = "0+unknown"
 
 _PUBLIC = {
-    "Run": "api", "active_run": "api", "artifact": "api", "claim": "api", "input": "api",
+    "Run": "api", "active_run": "api", "artifact": "api", "claim": "api", "fresh": "api",
+    "input": "api",
     "params": "api", "record": "api", "record_all": "api", "run": "api", "table": "api",
     "alias": "derived", "derive": "derived", "expect": "derived", "track": "tracked",
     # SPEC §5.1 promises that reading a pending key raises `vouch.Pending`; it was raised

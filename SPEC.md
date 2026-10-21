@@ -350,6 +350,7 @@ with vouch.run("cifar_resnet", params=args) as run:
 - Runs cannot nest. Several sequential runs in one process are allowed, e.g. a sweep loop with one run per configuration.
 - **Parameters.** `params=` accepts a dict, an `argparse.Namespace`, a dataclass, or any object with `to_dict()`/`to_container()` (OmegaConf, Pydantic). Values are flattened with dots and stored. Each one is citable as `<run>.param.<name>`, so "we train for 100 epochs" is `\vouch{cifar_resnet.param.epochs}` and cannot drift from the code.
 - **Command.** `sys.argv` and the interpreter are recorded, which is what gives `vouch status` its exact re-run command.
+- **Skipping a run whose record stands.** `vouch.fresh(id, params=None)` is true when the run is recorded, complete and fresh (§8), and each given parameter equals the recorded one; a script guards a slow run with it. Freshness is per function from Python 3.12 (§8.2), so the parts of a script that should go stale apart belong in functions of their own: the module-level code is one unit, which every run of the script executes.
 - **In progress.** While a run records, a marker names it in `.vouch/cache/running/<id>.json`: the run, its process id, its start, its entry script and command. An explicit run writes it on entering the `with` block, an implicit one at its first record, and `vouch run` around the command it starts; it goes when the run is written or discarded. `vouch status` shows such a run as running since its start, in place of the re-run command, and a marker whose process is gone (killed before the run could end) as interrupted, until the run is next recorded. A key a script records, cited while that run is going, is pending with "it is running since …" (§5.5). A record is still written only at the end.
 
 ### 4.3 Recording everything at once: `record_all`
@@ -534,6 +535,7 @@ vouch: recorded run experiments.train: 12 value(s) → .vouch/runs/experiments.t
 | Call | Purpose |
 |---|---|
 | `vouch.run(id, params=None, prefix=None)` | Context manager for an explicit run. `prefix` is prepended to every key recorded in the run. |
+| `vouch.fresh(id, params=None)` → bool | Whether run `id`'s record still stands: recorded, complete and fresh (its code, inputs and artifacts unchanged; cosmetic or accepted count), with each of `params` equal to its recorded value. Lets a script skip a slow run whose result cannot have changed. Opt in only for a deterministic (seeded) run. |
 | `vouch.record(key, value, *, fmt=None, unit=None, desc=None, better=None)` → value | Record a value. `better ∈ {"higher", "lower", None}`. |
 | `vouch.record_all(values, *, prefix=None, fmt=None, desc=None, …)` → values | Record every value in a dict, DataFrame or results file in one call (§4.3). |
 | `vouch.claim(key, holds, *, desc=None, values=None)` → holds | Record a boolean claim. `values` is an optional dict of the numbers it is about, used in messages and tooltips. |

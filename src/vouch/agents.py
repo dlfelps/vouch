@@ -64,6 +64,8 @@ def evaluate(dataset: str, model: str, seed: int = 0) -> dict:
 - Multi-seed results: `over="seed"` or `vouch.Stat.of(per_seed)` -- never a hand-computed mean.
 - A long sweep: one `with vouch.run(f"sweep_n{n}", params={"n": n}):` per configuration,
   so finished configurations stay recorded.
+- A slow part beside quick ones: its own run, its body in a function, guarded with
+  `if not vouch.fresh("slow_id"):` so that editing a quick part does not re-run it.
 - A property the experiment checks: `vouch.claim(key, ok, desc=..., values={...})`
   where it is checked, with the numbers behind it.
 - A table: `vouch.table(key, rows, columns=[...], row_key="id", desc=...)`; every cell
