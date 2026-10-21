@@ -73,8 +73,10 @@ file for:
 
 If it finds problems, it prints them with their fixes to stderr and exits `2`,
 which feeds them back to the agent in the same turn, so a mistake is corrected
-immediately instead of at commit time. Pending keys are not reported here:
-citing one is the approved move.
+immediately instead of at commit time. Pending keys are not problems: citing one
+is the approved move. When the file cites owed values and has no problem, the hook
+exits `0` with `hookSpecificOutput.additionalContext` on stdout, which tells the
+agent which values are owed, and by what, without blocking it.
 
 ```
 vouch: paper/results.tex has 3 problem(s) -- fix them now:

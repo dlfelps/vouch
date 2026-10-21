@@ -14,10 +14,12 @@ def main() -> int:
         data = "" if sys.stdin is None or sys.stdin.isatty() else sys.stdin.read()
         if ".tex" not in data:                       # not a tex edit: nothing to check
             return 0
-        from .edithook import run_edit_hook
-        code, text = run_edit_hook(data)
-        if text:
-            sys.stderr.write(text)
+        from .edithook import edit_hook_result
+        code, err, out = edit_hook_result(data)
+        if err:
+            sys.stderr.write(err)
+        if out:
+            sys.stdout.write(out)
         return code
     from .cli import main as cli_main
     try:

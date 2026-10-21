@@ -168,8 +168,10 @@ def _malformed(masked: str) -> list[tuple[int, str]]:
     return out
 
 
-def check_file(path: Path) -> list[str] | None:
-    """Problems in one edited tex file, as lines for the agent; None if it isn't ours."""
+def check_file(path: Path, notes: list[str] | None = None) -> list[str] | None:
+    """Problems in one edited tex file, as lines for the agent; None if it isn't ours.
+    With ``notes``, what the agent should hear but need not fix (values the paper cites
+    that are owed) is appended there."""
     from .tex.lint import _allowed, find_literals, match, suggestion
     from .tex.scan import Document, _Scanner
     path = path.resolve()
@@ -213,8 +215,15 @@ def check_file(path: Path) -> list[str] | None:
     def known(k: str) -> bool:
         return k in keys or any(k == d or k.startswith(d + ".") for d in list(pending) + list(defined))
     scripted = None
+    owed: list[str] = []
     for _, c in s._cites_in(masked, body, len(masked), path):
-        if c.kind == "figure" or known(c.key):
+        if c.kind == "figure":
+            continue
+        if known(c.key):
+            p = next((d for d in pending if c.key == d or c.key.startswith(d + ".")), None)
+            if c.key not in keys and p is not None:
+                owed.append(f"{c.key} (owed: {pending[p]})" if pending[p]
+                            else f"{c.key} (owed: declared with vouch.expect)")
             continue
         # A key a script records by name but no run has recorded yet (a run in flight, a
         # line just added) is pending, as `vouch check` reports it: blocking on it here as
@@ -222,6 +231,8 @@ def check_file(path: Path) -> list[str] | None:
         if scripted is None:
             scripted = script_keys(cfg)
         if c.key in scripted:
+            owed.append(f"{c.key} (recorded by {scripted[c.key][0]}:{scripted[c.key][1]} "
+                        f"when it runs)")
             continue
         sugg = difflib.get_close_matches(c.key, list(keys), n=3, cutoff=0.6)
         problems.append((c.line, f"unknown key {c.key}: no run, definition or vouch.expect "
@@ -253,6 +264,11 @@ def check_file(path: Path) -> list[str] | None:
                 problems.append((lit.line, f"{shown} matches no recorded value: don't type "
                                            f"numbers -- record it in the experiment, or "
                                            f"vouch.expect() it and tell the user it is owed"))
+    if notes is not None and owed:
+        notes.append(f"vouch: {rel} cites {len(set(owed))} value(s) no run has recorded yet, "
+                     f"which is allowed while they are owed: {', '.join(sorted(set(owed)))}. "
+                     f"Tell the user these experiments are owed (`vouch todo` lists them); "
+                     f"never type a number in their place.")
     if not problems:
         return []
     out = [f"vouch: {rel} has {len(problems)} problem(s) -- fix them now:"]
@@ -261,23 +277,40 @@ def check_file(path: Path) -> list[str] | None:
     return out
 
 
-def run_edit_hook(stdin_text: str) -> tuple[int, str]:
-    """(exit code, stderr text) for one PostToolUse payload."""
+def edit_hook_result(stdin_text: str) -> tuple[int, str, str]:
+    """(exit code, stderr, stdout) for one PostToolUse payload.
+
+    Problems block: exit 2, with the problems on stderr, which Claude Code feeds back to
+    the agent. What the agent should hear but need not fix (values owed) used to have only
+    that channel, or none; with no problem it now goes to stdout as
+    ``hookSpecificOutput.additionalContext`` with exit 0, which reaches the agent without
+    blocking it.
+    """
     try:
         payload = json.loads(stdin_text or "{}")
     except ValueError:
-        return 0, ""
+        return 0, "", ""
     ti = payload.get("tool_input") or {}
     file = ti.get("file_path") or ti.get("path") or ""
     if not str(file).endswith(".tex"):
-        return 0, ""
+        return 0, "", ""
+    notes: list[str] = []
     try:
-        got = check_file(Path(file))
+        got = check_file(Path(file), notes)
     except Exception as exc:              # a hook must never get in the agent's way
-        return 0, f"vouch hook: {exc!r}"
-    if not got:
-        return 0, ""
-    return 2, "\n".join(got) + "\n"
+        return 0, f"vouch hook: {exc!r}", ""
+    if got:
+        return 2, "\n".join(got) + "\n", ""
+    if notes:
+        return 0, "", json.dumps({"hookSpecificOutput": {
+            "hookEventName": "PostToolUse", "additionalContext": "\n".join(notes)}})
+    return 0, "", ""
+
+
+def run_edit_hook(stdin_text: str) -> tuple[int, str]:
+    """(exit code, stderr text) for one PostToolUse payload; see ``edit_hook_result``."""
+    code, err, _out = edit_hook_result(stdin_text)
+    return code, err
 
 
 def run_stop_hook(stdin_text: str, root: Path | None) -> tuple[int, str]:

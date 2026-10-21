@@ -1591,7 +1591,7 @@ It ends with a command cheat-sheet, including `vouch document` (§12.3).
 - malformed macros (`\vouch{` never closed, `\vouchclaim` without its prose)
 - typed numbers: the exact `\vouch[fmt]{key}` to replace each with, or "matches no recorded value"
 
-If it finds problems, it prints them with their fixes to stderr and exits `2`, which feeds them back to the agent in the same turn, so a mistake is corrected immediately instead of at commit time. Pending keys are not reported here: citing one is the approved move, and `check` and `todo` list them.
+If it finds problems, it prints them with their fixes to stderr and exits `2`, which feeds them back to the agent in the same turn, so a mistake is corrected immediately instead of at commit time. Pending keys are not problems: citing one is the approved move, and `check` and `todo` list them. When the file has no problem but cites owed values (an `expect()` key, or one a script records but has not run, §5.5), the hook exits `0` and prints `{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "…"}}` on stdout, which reaches the agent without blocking it: it names the values and their producers, and asks the agent to tell the user they are owed.
 
 ```
 vouch: paper/results.tex has 3 problem(s) -- fix them now:

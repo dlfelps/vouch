@@ -1392,12 +1392,14 @@ def cmd_review(args) -> int:
 
 def cmd_hook(args) -> int:
     if args.action in ("claude", "stop"):
-        from .edithook import run_edit_hook, run_stop_hook
+        from .edithook import edit_hook_result, run_stop_hook
         data = sys.stdin.read() if not sys.stdin.isatty() else ""
-        code, text = (run_edit_hook(data) if args.action == "claude"
-                      else run_stop_hook(data, Path(args.root) if args.root else None))
+        code, text, out = (edit_hook_result(data) if args.action == "claude"
+                           else (*run_stop_hook(data, Path(args.root) if args.root else None), ""))
         if text:
             sys.stderr.write(text)
+        if out:
+            sys.stdout.write(out)
         return code
     from .hooks import HookError, install
     try:
@@ -1598,10 +1600,12 @@ def main(argv: list[str] | None = None) -> int:
     _utf8_when_piped()
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv == ["hook", "claude"]:        # after every agent edit: skip argparse entirely
-        from .edithook import run_edit_hook
-        code, text = run_edit_hook(sys.stdin.read() if not sys.stdin.isatty() else "")
-        if text:
-            sys.stderr.write(text)
+        from .edithook import edit_hook_result
+        code, err, out = edit_hook_result(sys.stdin.read() if not sys.stdin.isatty() else "")
+        if err:
+            sys.stderr.write(err)
+        if out:
+            sys.stdout.write(out)
         return code
     parser = make_parser()
     cmd: list[str] = []

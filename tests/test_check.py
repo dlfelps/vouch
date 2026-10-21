@@ -296,6 +296,31 @@ def test_the_edit_hook_does_not_block_on_a_key_a_script_records(example):
     assert "toy.extra" not in text and code == 0, text
 
 
+def test_the_edit_hook_tells_the_agent_of_a_pending_key_without_blocking(example, capsys,
+                                                                        monkeypatch):
+    """A pending key is not a problem, so the hook must not block on it; but the agent should
+    hear that the number is owed, to tell the user. Exit 2 blocks; stdout JSON with
+    hookSpecificOutput.additionalContext reaches the agent without blocking."""
+    import io
+    from vouch.edithook import edit_hook_result
+    built(example)
+    edit(example / "train.py", "vouch.params(", RECORD_EXTRA + "vouch.params(")
+    cite(example, "toy.extra")
+    payload = json.dumps({"tool_name": "Edit",
+                          "tool_input": {"file_path": str(example / "paper/main.tex")}})
+    code, err, out = edit_hook_result(payload)
+    assert code == 0 and err == ""
+    hso = json.loads(out)["hookSpecificOutput"]
+    assert hso["hookEventName"] == "PostToolUse"
+    assert "toy.extra" in hso["additionalContext"] and "train.py" in hso["additionalContext"]
+    monkeypatch.setattr("sys.stdin", io.StringIO(payload))          # the command, end to end
+    capsys.readouterr()
+    assert cli.main(["hook", "claude"]) == 0
+    printed = capsys.readouterr()
+    assert json.loads(printed.out)["hookSpecificOutput"]["additionalContext"] and not printed.err
+
+
+
 def test_false_claim(example, capsys):
     rec_path = example / ".vouch/runs/train.json"
     rec = json.loads(rec_path.read_text(encoding="utf-8"))
