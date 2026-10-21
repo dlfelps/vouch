@@ -25,7 +25,7 @@ code.
 | `figure-stale` | error | a cited figure's producing run is stale | re-run |
 | `changed` / `suspicious` / `figure-changed` | warning | see [Change notification](change-notification.md) | re-read the cited sentences, then `vouch ack` |
 | `fragile` | warning | a claim holds by less than `changes.claim_margin` | soften the claim, or check it is not noise |
-| `pending` | warning | a cited `expect()` key has no producing run | run the `producer` command |
+| `pending` | warning | a cited `expect()` key has no producing run, or a script records the key by name but has not run since | run the `producer` command |
 | `no-source` | warning | a bare number in prose that matches **no** recorded value: the signature of an invented number | find the real value (`vouch search`) or remove the number |
 | `bare-number` | warning | a bare number that **does** match a recorded value | `vouch suggest --apply` |
 | `figure-untracked` | warning | an `\includegraphics` with no producing run | save it inside a run |

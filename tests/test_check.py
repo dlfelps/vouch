@@ -190,6 +190,73 @@ def test_hand_edited_csv_value_still_reads_as_a_value_mismatch(example, capsys):
     assert "does not match the recorded values" in issue["message"]
 
 
+RECORD_EXTRA = 'vouch.record("toy.extra", 1.0, desc="an extra value")\n'
+
+
+def cite(example, key):
+    edit(example / "paper/main.tex", "\\maketitle\n", f"\\maketitle\nExtra: \\vouch{{{key}}}.\n")
+
+
+def about(rep, key):
+    return [i for i in rep["issues"] if i.get("subject") == key]
+
+
+def test_a_key_a_script_records_before_it_has_run_is_pending(example, capsys):
+    """A key cited while the run that records it had yet to happen (a 20-minute run in
+    flight) was "not recorded by any run": an error, and a blocking one in the edit hook,
+    which pushed toward deleting the citation or inventing a vouch.expect(). The script
+    names the key, so it is pending, and the producer is the run's re-run command."""
+    built(example)
+    edit(example / "train.py", "vouch.params(", RECORD_EXTRA + "vouch.params(")
+    cite(example, "toy.extra")
+    code, rep = check_json(example, capsys)
+    issues = about(rep, "toy.extra")
+    assert [i["check"] for i in issues] == ["pending"] and issues[0]["severity"] == "warning"
+    assert "train.py:" in issues[0]["message"]
+    assert issues[0]["fix"] == {"kind": "command", "value": "python train.py"}
+    assert cli.main(["build", "--root", str(example), "--no-notify"]) == 0
+    values = (example / "paper/vouch-values.tex").read_text(encoding="utf-8")
+    assert r"\vouch@pending{toy.extra}{python train.py}" in values
+    capsys.readouterr()
+    code, rep = check_json(example, capsys, "--strict")
+    assert code == 1 and about(rep, "toy.extra")[0]["severity"] == "error"
+
+
+def test_a_key_a_new_script_records_is_pending_on_that_script(example, capsys):
+    built(example)
+    (example / "extra.py").write_text("import vouch\nvouch.record('side.value', 2.0, desc='d')\n",
+                                      encoding="utf-8")
+    cite(example, "side.value")
+    code, rep = check_json(example, capsys)
+    issue = about(rep, "side.value")[0]
+    assert issue["check"] == "pending" and "extra.py:2" in issue["message"]
+    assert issue["fix"]["value"] == "python extra.py"
+
+
+def test_a_key_its_current_run_did_not_record_stays_unknown(example, capsys):
+    """If the script's run is current and still did not record the key, re-running will not
+    either (a branch it never takes): the key is unknown, and the message says where the
+    script names it."""
+    edit(example / "train.py", "vouch.params(", "if False:\n    " + RECORD_EXTRA + "vouch.params(")
+    rerun(example)
+    built(example)
+    cite(example, "toy.extra")
+    code, rep = check_json(example, capsys)
+    issue = about(rep, "toy.extra")[0]
+    assert issue["check"] == "unknown-key" and "train.py:" in issue["message"]
+
+
+def test_the_edit_hook_does_not_block_on_a_key_a_script_records(example):
+    from vouch.edithook import run_edit_hook
+    built(example)
+    edit(example / "train.py", "vouch.params(", RECORD_EXTRA + "vouch.params(")
+    cite(example, "toy.extra")
+    payload = json.dumps({"tool_name": "Edit",
+                          "tool_input": {"file_path": str(example / "paper/main.tex")}})
+    code, text = run_edit_hook(payload)
+    assert "toy.extra" not in text and code == 0, text
+
+
 def test_false_claim(example, capsys):
     rec_path = example / ".vouch/runs/train.json"
     rec = json.loads(rec_path.read_text(encoding="utf-8"))

@@ -380,10 +380,11 @@ def test_edit_hook_knows_the_runs_recorded_since_the_last_build(proj):
     proj.run("later.py", check=True)
     code, text = run_edit_hook(_payload(proj.root / "paper/results.tex"))
     assert "unknown key ablation.a.drop" in text and "unknown key cifar.n_val" not in text
-    # and a deleted run drops out
+    # and a deleted run drops out: its values match nothing any more. later.py still records
+    # cifar.n_val by name, so that key is pending on it, not unknown (SPEC 5.5)
     (proj.root / ".vouch" / "runs" / "later.json").unlink()
     code, text = run_edit_hook(_payload(proj.root / "paper/results.tex"))
-    assert "unknown key cifar.n_val" in text
+    assert "4321 matches no recorded value" in text and "cifar.n_val" not in text
 
 
 def test_edit_hook_ignores_what_is_not_a_vouch_paper(tmp_path):

@@ -386,7 +386,41 @@ def paper_paths(cfg: Config, paper: dict) -> tuple[Path, Path, Path, Path | None
             opt("tables_dir", d / "vouch-tables"), opt("provenance_csv", None))
 
 
-def prepare_paper(cfg: Config, idx: Index, paper: dict) -> PaperPlan:
+def _scripted_pending(cfg: Config, idx: Index, states: dict | None, keys: set[str]) -> dict:
+    """Keys of ``keys`` that a project script records by a literal name but no run has
+    recorded yet: each becomes pending, with the script's re-run command as its producer.
+
+    Before, such a key was "not recorded by any run", an error, while the run that would
+    record it was in flight or the line had just been added. A script whose run is current
+    and still did not record the key will not record it by running again: that key stays
+    unknown, and the returned hint says where the script names it.
+    """
+    from .valuesmod import script_keys
+    named = script_keys(cfg)
+    hints: dict[str, str] = {}
+    for key in sorted(keys):
+        if key not in named:
+            continue
+        file, line = named[key]
+        runs = sorted(r for r, rec in idx.runs.items() if rec.get("entry") == file)
+        st = [states[r] for r in runs if states and r in states]
+        current = [s for s in st if s.state in ("fresh", "cosmetic", "accepted")]
+        if current:
+            hints[key] = (f"; {file}:{line} records it, but run {current[0].run}, which is "
+                          f"current, did not: does that line run?")
+            continue
+        if st:
+            what = f"recorded by {file}:{line} once run {st[0].run} runs again (it is {st[0].state})"
+            producer = st[0].command or f"python {file}"
+        else:
+            what = f"recorded by {file}:{line}, which has not run yet"
+            producer = f"python {file}"
+        idx.add_expect(key, {"producer": producer, "site": f"{file}:{line}", "script": what,
+                             "desc": what})
+    return hints
+
+
+def prepare_paper(cfg: Config, idx: Index, paper: dict, states: dict | None = None) -> PaperPlan:
     main, values_path, tables_dir, csv_path = paper_paths(cfg, paper)
     if not main.is_file():
         raise BuildError(f"paper main file {cfg.rel(main)} does not exist (vouch.toml [[paper]])")
@@ -396,6 +430,12 @@ def prepare_paper(cfg: Config, idx: Index, paper: dict) -> PaperPlan:
     for f, line, target in doc.missing_inputs:
         issues.append(Issue("config", "warning", f"\\input{{{target}}} not found", f, line))
 
+    # keys nothing else provides may be recorded by a script that has not run yet
+    unprovided = {c.key for c in doc.citations if c.kind in ("value", "raw", "claim", "table")
+                  and idx.get(c.key) is None and idx.pending_for(c.key) is None
+                  and not idx.awaiting_build(c.key) and idx.failed_derivation(c.key) is None}
+    hints = _scripted_pending(cfg, idx, states, unprovided) if unprovided else {}
+
     wanted: dict[str, set[str]] = {}
     for c in doc.citations:
         if c.kind in ("value", "raw", "claim", "table"):
@@ -403,7 +443,8 @@ def prepare_paper(cfg: Config, idx: Index, paper: dict) -> PaperPlan:
             if e is None and idx.pending_for(c.key) is not None:
                 p = idx.pending_for(c.key)
                 producer = p.get("producer")
-                what = (f"it is computed from {', '.join(p['waits'])}, which no run has recorded "
+                what = (p["script"] if p.get("script") else
+                        f"it is computed from {', '.join(p['waits'])}, which no run has recorded "
                         f"yet" if p.get("waits") else
                         f"declared with vouch.expect" + (f" ({p['desc']})" if p.get("desc") else ""))
                 issues.append(Issue("pending", "warning",
@@ -430,6 +471,7 @@ def prepare_paper(cfg: Config, idx: Index, paper: dict) -> PaperPlan:
                          "table": "vouchtable"}[c.kind]
                 issues.append(Issue("unknown-key", "error",
                                     f"\\{macro}{{{c.key}}} is not recorded by any run"
+                                    + hints.get(c.key, "")
                                     + (f" (did you mean {', '.join(sugg)}?)" if sugg else ""),
                                     c.file, c.line, subject=c.key,
                                     fix="fix the key, or record it (vouch.record / record_all)",
@@ -586,7 +628,7 @@ def plan(cfg: Config, *, check_env: bool = True, only: list[dict] | None = None,
         chosen = papers(cfg)
     else:
         chosen = []                     # ls, trace, status: useful before there is a paper
-    plans = [prepare_paper(cfg, idx, p) for p in chosen]
+    plans = [prepare_paper(cfg, idx, p, states) for p in chosen]
     baseline = ch.load_baseline(cfg)
     current, cites = ch.currents(idx, plans)
     changes = ch.compute(cfg, baseline, current, cites)

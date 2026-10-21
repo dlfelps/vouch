@@ -743,6 +743,8 @@ Rendering produces only the **body rows** (`a & b & c \\`). You write the `tabul
 - The check reports it as `pending`: a warning in drafts, an error under `--strict` and in `final` builds.
 - Once a run records the key, the placeholder resolves automatically. A leftover `expect()` for a key that now exists is an `info` message ("expectation met; you can delete it").
 
+**A key a script records but no run has recorded yet** is pending too, with no `expect()`. A cited key that nothing else provides is looked up in the project's first-party `.py` files (not the values modules), read without running them, for a call that records it under that literal name: `record("key", …)`, `claim("key", holds, …)` or `table("key", rows, …)`, on `vouch` or on a run. If no run's entry is that script, or the script's run is not current (it changed since, so the line may be new), the key is pending, and its producer is the run's re-run command, or `python <script>`. This covers a run still in flight and a line just added; before, the key was an `unknown-key` error, and the edit hook blocked on it. If the run is current and still did not record the key, running it again will not either (a branch it does not take): the key stays `unknown-key`, and the message names the line. Only literal keys count, so a mistyped key under a `record_all` prefix, or an f-string key, is never taken for one that is merely owed.
+
 ### 5.6 Evaluation and persistence
 
 `vouch build` imports each values module and evaluates every definition. It writes `.vouch/derived.json` (committed, deterministic, one definition per line, sealed with a `record_hash` like a run record), which holds:
@@ -1234,7 +1236,7 @@ There is exactly one CSV per paper, covering every cited key. This was decided i
 | `figure-stale` | error | a cited figure's producing run is stale | re-run |
 | `changed` / `suspicious` / `figure-changed` | warning | §9.2 | re-read the cited sentences, then `vouch ack` |
 | `fragile` | warning | a claim holds by less than `changes.claim_margin` (§5.3) | soften the claim, or check it is not noise |
-| `pending` | warning | a cited `expect()` key has no producing run | run the `producer` command |
+| `pending` | warning | a cited `expect()` key has no producing run, or a script records the key by name but has not run since (§5.5) | run the `producer` command |
 | `no-source` | warning | a bare number in prose that matches **no** recorded value: the signature of an invented number | find the real value (`vouch search`) or remove the number |
 | `bare-number` | warning | a bare number that **does** match a recorded value | `vouch suggest --apply` |
 | `figure-untracked` | warning | an `\includegraphics` with no producing run | save it inside a run |
@@ -1528,7 +1530,7 @@ main.tex:140  3{,}014   → ambiguous: compl.words (3014), sweep.n_configs (3014
 When an agent drafting prose needs a number that doesn't exist, the approved move is:
 
 1. Write `\vouch{imagenet.convnext.acc}` in the prose.
-2. Add `vouch.expect("imagenet.convnext.acc", desc=…, producer="…")` to `vouch_values.py`.
+2. Add `vouch.expect("imagenet.convnext.acc", desc=…, producer="…")` to `vouch_values.py`, unless a script already records the key by that name, which makes it pending on that script (§5.5).
 3. Tell the user the experiment is owed. `vouch todo` lists it.
 
 The draft compiles with a visible, boxed `pending: …`. This gives the agent a legitimate move other than inventing a number, which is the most important anti-hallucination feature in this spec.

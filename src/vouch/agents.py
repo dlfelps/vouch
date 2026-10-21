@@ -91,9 +91,12 @@ def evaluate(dataset: str, model: str, seed: int = 0) -> dict:
 4. "Outperforms", "in every seed", "significantly": back them with a claim and wrap
    the prose: `\vouchclaim{key}{ResNet outperforms ViT}`. Write "significantly" only
    if `vouch compare` reports p < 0.05.
-5. A number no run has produced yet: cite `\vouch{new.key}` anyway, add
-   `vouch.expect("new.key", desc=..., producer="python ...")` to `vouch_values.py`,
-   and tell the user the experiment is owed (`vouch todo`). Never invent it.
+5. A number no run has produced yet: cite `\vouch{new.key}` anyway. If a script
+   already records it by that literal name (`vouch.record("new.key", ...)`, a line
+   just added or a run still going), that is enough: the key is pending, with the
+   script as its producer. Otherwise add `vouch.expect("new.key", desc=...,
+   producer="python ...")` to `vouch_values.py`. Either way, tell the user the
+   experiment is owed (`vouch todo`). Never invent it.
 6. `vouch build`, then `vouch check` must pass. Before the paper is submitted,
    `vouch check --strict` must pass too. It also fails on pending `expect()` values,
    which step 5 allows while experiments are owed, so don't hold a draft to it.

@@ -207,13 +207,21 @@ def check_file(path: Path) -> list[str] | None:
     keys = set(data.get("keys", []))
     pending = data.get("pending") or {}
     defined = set(data.get("defined", []))
-    from .valuesmod import static_keys, values_modules
+    from .valuesmod import script_keys, static_keys, values_modules
     defined |= static_keys(values_modules(cfg))           # defined since the last build
 
     def known(k: str) -> bool:
         return k in keys or any(k == d or k.startswith(d + ".") for d in list(pending) + list(defined))
+    scripted = None
     for _, c in s._cites_in(masked, body, len(masked), path):
         if c.kind == "figure" or known(c.key):
+            continue
+        # A key a script records by name but no run has recorded yet (a run in flight, a
+        # line just added) is pending, as `vouch check` reports it: blocking on it here as
+        # unknown pushed the agent to delete the citation or invent a vouch.expect().
+        if scripted is None:
+            scripted = script_keys(cfg)
+        if c.key in scripted:
             continue
         sugg = difflib.get_close_matches(c.key, list(keys), n=3, cutoff=0.6)
         problems.append((c.line, f"unknown key {c.key}: no run, definition or vouch.expect "

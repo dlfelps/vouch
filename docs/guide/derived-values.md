@@ -127,6 +127,11 @@ any run produces it:
 - The check reports it as `pending`: a warning in drafts, an error under `--strict` and in `final` builds.
 - Once a run records the key, the placeholder resolves automatically.
 
+A key that a script already records by name, `vouch.record("key", ...)`, needs no
+`expect()`: while no run has recorded it (the run is still going, or the line was just
+added and the run is stale), it is pending too, with the script's re-run command as
+its producer. Only literal keys count, so a mistyped key never passes as an owed one.
+
 ## Evaluation and persistence
 
 `vouch build` imports each values module and evaluates every definition. It
