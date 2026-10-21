@@ -18,9 +18,11 @@ one replaces a guess with a recorded value, a derivation, or a placeholder.
    `vouch check --strict` only at submission, since it also fails on owed
    `vouch.expect()` values.
 
-Define before you cite. The hook knows keys from runs recorded since the last build
-and definitions added to `vouch_values.py` since then. A citation written before
-either exists is reported as unknown, correctly, until it does.
+Define before you cite. The hook knows keys from runs recorded since the last build,
+definitions added to `vouch_values.py` since then, and keys a script records by a
+literal name (`vouch.record("k", ...)`) that no run has recorded yet. Those are owed,
+not unknown: a line just added, or a run still going, is enough. A citation of anything
+else is reported as unknown, correctly, until it exists.
 
 ## One run per configuration
 
@@ -38,6 +40,33 @@ experiment is quick and its values belong together. Data the run reads goes thro
 `vouch.input(path)` and files it writes through `vouch.artifact(path)`, so
 freshness covers them; a matplotlib figure saved inside the run is tracked on its
 own.
+
+**Split a slow part from a quick one.** A run is the whole block, so adding one
+quick claim to a script whose other half takes twenty minutes re-runs the twenty
+minutes. Give each part its own run, with its body in a function, and skip the slow run
+while its record stands:
+
+```python
+def search():                     # the slow, exhaustive part
+    vouch.record("examples.search.left", count_left(), desc="...")
+
+def examples():                   # the worked examples: milliseconds
+    vouch.claim("examples.cascade", table_matches(), desc="...")
+
+if not vouch.fresh("examples_search"):
+    with vouch.run("examples_search"):
+        search()
+with vouch.run("examples"):
+    examples()
+```
+
+The functions matter. Freshness is per function, so an edit inside `examples()`
+leaves the slow run fresh; the same edit written inline at module level changes the
+script's `<module>` unit, which both runs executed, and both go stale. `vouch.fresh`
+is for runs whose result their code, inputs and parameters determine (seeded); pass
+`params=` when those can change. While a run is going, `vouch status` shows it as
+running, with its process, rather than as stale; a run killed before it ended shows
+as interrupted.
 
 ## Evidence goes in the run, as a claim
 
@@ -111,7 +140,10 @@ Set the usual format at record time (`fmt=`) or for a family of keys in
 
 ## Owed numbers
 
-A number no run has produced yet is cited anyway and declared:
+A number no run has produced yet is cited anyway. If the experiment already records
+it by name, `vouch.record("imagenet.vit.acc", ...)` in a script that has not run since
+that line was added, nothing more is needed: the key is pending on that script, and
+`vouch todo` names it. Otherwise declare it:
 
 ```python
 vouch.expect("imagenet.vit.acc", desc="ViT top-1 on ImageNet",
@@ -144,8 +176,15 @@ cites any more.
 |---|---|
 | `93.2% is typed by hand; it is KEY: replace it with \vouch[.1pct]{KEY}` | paste the replacement |
 | `... matches no recorded value` | record it, derive it, or `vouch.expect()` it; tell the user |
-| `unknown key K ... (did you mean ...)` | a typo, or a key not defined yet: define it first |
+| `unknown key K ... (did you mean ...)` | a typo: take the suggestion only if it is the key you meant |
+| `unknown key K ...; find it with vouch search` | not near any key: search for it, or record or define it first |
 | `\vouchclaim takes two arguments` | add the prose the claim vouches for |
+| (no block) `... cites N value(s) no run has recorded yet ...` | nothing to fix: tell the user the experiment is owed |
+
+The last row arrives as context rather than as a blocking error. The hook runs only
+after the agent's own edits; after a file is changed by a script, run `vouch lint`
+(the same check) on it. `vouch status` ends with when the hook last ran and what it
+found.
 
 Coordinates inside drawing environments (`tikzpicture`, `axis`, ...) are not
 results; node text is still prose and still checked.
@@ -156,5 +195,25 @@ In a uv project the agent's shell may not have `vouch` on `PATH`; use
 `uv run --no-sync vouch ...`, which is also the hook command `vouch init --agents`
 writes there. Never edit `.vouch/` or the generated `vouch-values.tex`,
 `vouch-tables/` and provenance CSV by hand; `vouch build` writes them.
+
+## A log of vouch in use
+
+Where to improve vouch is learned by using it. In a project that uses it, keep a short
+running log, `vouch-dialogue.md`, of what worked and what got in the way, written as it
+happens rather than from memory:
+
+```markdown
+## 21 October 2026: the revision of section 6
+
+1. **+ `vouch status` shows each run's duration.** It showed that `examples`
+   takes 21 minutes, so the re-run went to the background at once.
+2. **- One quick claim cost a 21-minute re-run.** ... *Idea:* ...
+3. **? The edit hook is silent when all is well.** ...
+```
+
+Mark each entry **+** (worked well), **-** (got in the way) or **?** (unclear), with
+the concrete symptom and, where one suggests itself, an idea. A clear defect (a false
+warning, a misleading message) is worth reporting at once; the rest are worth reviewing
+together before a release.
 
 See also: [LLM & agents](index.md), [Claude Code](claude-code.md).
