@@ -72,7 +72,7 @@ reversed.
 ```console
 $ vouch review                        # interactive: one change at a time
   SUSPICIOUS cifar.vit.acc 91.2\% → 72.4\% …  (sentences shown)
-  [a]ck  [s]kip  [o]pen main.tex:118  [d]etails  [q]uit > o      # opens $EDITOR / `code -g`
+  [a]ck  [A]ck all remaining  [s]kip  [o]pen  [q]uit > o      # opens $EDITOR / `code -g`
 $ vouch ack cifar.vit.acc --why "bug fix in augmentation; text updated in §4.2"
 $ vouch ack --all --why "re-ran all with 5 seeds"
 $ vouch ack main                      # a table: every changed cell of it

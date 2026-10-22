@@ -447,6 +447,50 @@ class _NulStdin:
         return ""
 
 
+class _TypedStdin(_NulStdin):
+    """A terminal on which a person types these answers, then nothing."""
+
+    def __init__(self, *answers):
+        self.answers = [a + "\n" for a in answers]
+
+    def readline(self, *_):
+        return self.answers.pop(0) if self.answers else ""
+
+
+def test_review_can_acknowledge_all_that_remain(proj, capsys, monkeypatch):
+    # With 50 changes pending, `vouch review` asked about each one in turn, and the only
+    # way to acknowledge the rest at once was to quit and run `vouch ack --all`.
+    paper(proj, "\\vouch{evaluate.cifar.resnet.acc}, \\vouch{evaluate.cifar.vit.acc}, "
+                "\\vouch{evaluate.cifar.mlp.acc} and \\vouch{evaluate.cifar.mlp.loss}.")
+    build(Config.load(proj.root))
+    proj.write("exp.py", EXP.replace('{"resnet": 0.93, "vit": 0.91, "mlp": 0.85}',
+                                     '{"resnet": 0.80, "vit": 0.70, "mlp": 0.60}'))
+    proj.run("exp.py", check=True)
+    build(Config.load(proj.root))
+    from vouch.build import plan
+    pending = [c for c in plan(Config.load(proj.root), check_env=False).changes if c.pending]
+    assert len(pending) >= 3
+    acked = proj.root / ".vouch/acknowledged.json"
+    before = acked.read_text(encoding="utf-8")
+
+    # "A", then no at the confirmation: nothing is acknowledged, and the change is asked again
+    monkeypatch.setattr(sys, "stdin", _TypedStdin("A", "n", "q"))
+    assert cli.main(["review"]) == 0
+    out = capsys.readouterr().out
+    assert f"the {len(pending) - 1} after it" in out and "suspicious" in out
+    assert out.count("[a]ck") == 2 and "0 acknowledged" in out
+    assert acked.read_text(encoding="utf-8") == before
+
+    # skip the first, then all that remain, with a reason recorded for each
+    monkeypatch.setattr(sys, "stdin", _TypedStdin("s", "all", "y", "the model was retrained"))
+    assert cli.main(["review"]) == 0
+    out = capsys.readouterr().out
+    assert f"{len(pending) - 1} acknowledged, 1 still pending" in out
+    left = [c for c in plan(Config.load(proj.root), check_env=False).changes if c.pending]
+    assert [c.key for c in left] == [pending[0].key]
+    assert acked.read_text(encoding="utf-8").count("the model was retrained") == len(pending) - 1
+
+
 def test_a_prompt_that_reads_end_of_file_writes_nothing(proj, capsys, monkeypatch):
     # On Windows a stdin redirected from NUL (`< /dev/null`, or an agent's shell) says it
     # is a terminal, so `init --agents` and `review` went on to prompt and crashed with

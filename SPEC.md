@@ -1174,7 +1174,7 @@ A number can be updated correctly and still leave its sentence wrong ("the best 
 ```console
 $ vouch review                        # interactive: one change at a time
   SUSPICIOUS cifar.vit.acc 91.2\% → 72.4\% …  (sentences shown)
-  [a]ck  [s]kip  [o]pen main.tex:118  [d]etails  [q]uit > o      # opens $EDITOR / `code -g`
+  [a]ck  [A]ck all remaining  [s]kip  [o]pen  [q]uit > o      # opens $EDITOR / `code -g`
 $ vouch ack cifar.vit.acc --why "bug fix in augmentation; text updated in §4.2"
 $ vouch ack --all --why "re-ran all with 5 seeds"
 $ vouch ack main                      # a table: every changed cell of it
@@ -1313,7 +1313,7 @@ Every command accepts `--root DIR`. These commands also accept `--json`, which e
 | `vouch todo` | Pending `expect()` keys with their producer commands. |
 | `vouch changes [--json\|--md FILE]` | Pending changes to cited values, with the citing sentences. |
 | `vouch diff [REV [REV2]] [--key P]… [--cited] [--all] [--json\|--md FILE]` | Every recorded value, param, claim, table cell and figure added, removed or changed between a git revision (default `HEAD`) and the working tree, or two revisions (§9.5). |
-| `vouch review` | Interactive review of pending changes. An end of input quits, and acknowledges nothing it has not been given a reason for. |
+| `vouch review` | Interactive review of pending changes. `A` (or `all`) acknowledges the change shown and every one after it, once confirmed with their count and how many are suspicious. An end of input quits, and acknowledges nothing it has not been given a reason for. |
 | `vouch ack KEY… \| --all \| --run RUN [--why TEXT]` | Acknowledge changes. A KEY may be a glob, or a table (every changed cell of it). |
 | `vouch accept RUN --why TEXT` | Record a reviewed staleness (§8.5). |
 | `vouch export --csv PATH [--all] [--json]` | Provenance table on demand. |

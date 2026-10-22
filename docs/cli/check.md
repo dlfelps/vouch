@@ -127,11 +127,13 @@ Step through pending changes interactively.
 ```console
 $ vouch review
   SUSPICIOUS cifar.vit.acc 91.2\% → 72.4\% …  (sentences shown)
-  [a]ck  [s]kip  [o]pen  [q]uit >
+  [a]ck  [A]ck all remaining  [s]kip  [o]pen  [q]uit >
 ```
 
-`o` opens `$EDITOR` / `code -g` at the first citing line. After the last change it
-asks why, and records the answer with each acknowledgment. An end of input (a stdin
+`o` opens `$EDITOR` / `code -g` at the first citing line. `A` (or `all`)
+acknowledges the change shown and every one after it. It asks first, with their
+count and how many are suspicious, and a no returns to the change shown. After
+the last change it asks why, and records the answer with each acknowledgment. An end of input (a stdin
 redirected from `/dev/null`, which Windows reports as a terminal) quits, and
 acknowledges nothing. In a script, use `vouch changes` and `vouch ack KEY`.
 

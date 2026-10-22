@@ -1431,15 +1431,30 @@ def cmd_review(args) -> int:
     for n, c in enumerate(pending, 1):
         C.out(f"\n[{n}/{len(pending)}]")
         print_changes([c], heading=False)
+        rest = pending[n - 1:]
         while True:
-            got = _ask("  [a]ck  [s]kip  [o]pen  [q]uit > ")
-            ans = "q" if got is None else got.strip().lower()[:1]        # end of input: quit
+            got = _ask("  [a]ck  [A]ck all remaining  [s]kip  [o]pen  [q]uit > ")
+            typed = "q" if got is None else got.strip()                  # end of input: quit
+            ans = "all" if typed == "A" or typed.lower() == "all" else typed.lower()[:1]
             if ans == "o" and c.citations:
                 _open_editor(cfg.root, c.citations[0].file, c.citations[0].line)
                 continue
+            # With 50 changes pending, review asked about each in turn, and acknowledging the
+            # rest at once meant quitting for `vouch ack --all`. One keystroke now covers them
+            # all, so it is confirmed with their count, and the reason asked below covers each.
+            if ans == "all" and len(rest) > 1:
+                sus = sum(x.cls == "suspicious" for x in rest)
+                ok = _ask(f"  acknowledge this change and the {len(rest) - 1} after it"
+                          + (f" ({sus} suspicious)" if sus else "")
+                          + " without reviewing them? [y/N] > ")
+                if ok is None or ok.strip().lower()[:1] != "y":
+                    continue                      # not confirmed: back to this change
             break
         if ans == "a":
             chosen.append(c)
+        elif ans == "all":
+            chosen.extend(rest)
+            break
         elif ans == "q":
             break
     if chosen:
