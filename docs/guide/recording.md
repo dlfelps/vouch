@@ -73,6 +73,33 @@ with vouch.run("examples"):
 params=args)`; it is for runs whose result their code, inputs and parameters
 determine.
 
+**A figure from a slow run's numbers.** A figure drawn inside a measurement run is
+redrawn only by re-running the measurement, so relabelling one axis re-measured every
+timing. Draw it in a run of its own that reads the numbers with `vouch.value(key)`, which
+returns what `v[key]` returns in a definition: a number, a `Stat`, a claim's bool, or a
+table's rows as dicts.
+
+```python
+def measure():                    # the slow part: timings
+    vouch.table("ablation", rows, columns=[...], row_key="id", desc="...")
+
+def figure():                     # the quick part: the plot
+    rows = vouch.value("ablation")
+    ...
+    plt.savefig("paper/figures/stages.pdf")
+
+if not vouch.fresh("ablation"):
+    with vouch.run("ablation"):
+        measure()
+if not vouch.fresh("ablation_figure"):
+    with vouch.run("ablation_figure"):
+        figure()
+```
+
+The run records what it read (`reads` in its record). It goes stale when a value it read
+moves, not when the measurement re-runs and moves only others, and it is upstream-stale
+while the measurement is stale.
+
 ## Recording everything at once: `record_all`
 
 ```python
@@ -239,6 +266,7 @@ match.
 | `vouch.record_all(values, *, prefix=None, fmt=None, desc=None, …)` → values | Record every value in a dict, DataFrame or results file in one call. |
 | `vouch.claim(key, holds, *, desc=None, values=None)` → holds | Record a boolean claim. |
 | `vouch.input(path, *, mode=None)` | Declare an input file or directory. |
+| `vouch.value(key)` → value | What another run recorded under `key`: a number, a `Stat`, a claim's bool, a table's rows as dicts. The read is recorded, so the run goes stale when that value moves. A key no run records, or one this run records itself, raises `KeyError`. |
 | `vouch.artifact(path, *, kind=None)` | Declare an output file. `kind ∈ {"figure", "data", "model", "file"}`. |
 | `vouch.table(key, data, *, columns=None, row_key=None, fmt=None, highlight=None, desc=None)` | Record a table. |
 | `vouch.params(obj)` | Set the implicit run's parameters. |

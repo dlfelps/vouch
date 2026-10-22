@@ -68,6 +68,11 @@ is for runs whose result their code, inputs and parameters determine (seeded); p
 running, with its process, rather than as stale; a run killed before it ended shows
 as interrupted.
 
+A figure drawn from a slow run's numbers is a quick run of its own. It reads them with
+`vouch.value(key)` (a number, a `Stat`, a claim's bool, a table's rows), which records
+the read: relabelling the figure then re-draws it without re-measuring, and the figure
+run goes stale only when a value it drew moves.
+
 ## Evidence goes in the run, as a claim
 
 A property the experiment checks ("no certified pair has a nonzero gradient") is a

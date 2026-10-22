@@ -39,6 +39,7 @@ _PUBLIC = {
     "Run": "api", "active_run": "api", "artifact": "api", "claim": "api", "fresh": "api",
     "input": "api",
     "params": "api", "record": "api", "record_all": "api", "run": "api", "table": "api",
+    "value": "api",
     "alias": "derived", "derive": "derived", "expect": "derived", "track": "tracked",
     # SPEC §5.1 promises that reading a pending key raises `vouch.Pending`; it was raised
     # but not exported, so a definition that named it failed with an AttributeError.

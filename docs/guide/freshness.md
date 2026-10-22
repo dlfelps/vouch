@@ -60,6 +60,7 @@ Python child processes, which aren't observed.
 
 - **Inputs** are hashed by content, or by size+mtime with `mode="stat"`. A hash cache in `.vouch/cache/hashes.json` makes repeated checks cheap.
 - **Dependency between runs.** If run *B* recorded an input that is an artifact of run *A*, then *B* depends on *A*. If *A*'s recorded artifact hash differs from what *B* recorded as its input, *B* is **stale**. If *A* is stale, *B* is **upstream-stale**.
+- **Values read from another run.** A run that reads run *A*'s values with `vouch.value(key)` depends on *A* through those values. It is **stale** once one of them moves, or no run records it any more, and **upstream-stale** while *A* is stale. A re-run of *A* that moves only values it did not read leaves it fresh.
 - **Artifacts on disk** are checked when present. A mismatch is `tampered`. A missing file is `absent` (only a warning — the committed store alone is enough to check the paper).
 
 ## Run states

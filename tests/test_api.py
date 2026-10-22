@@ -396,6 +396,64 @@ def test_a_run_is_marked_while_it_records(project):
     assert not (project.root / ".vouch/cache/running/exp.json").exists()   # gone at exit
 
 
+def test_value_reads_what_another_run_recorded(project):
+    """Relabelling a figure drawn inside a measurement run re-ran the measurement, and its
+    timings moved within noise. A figure run of its own had to read the numbers from a side
+    file. vouch.value(key) reads them from the record, as v[key] does in a definition, and
+    records the read, so vouch.fresh skips the figure until a value it drew moves."""
+    project.write("measure.py", """
+        import sys, vouch
+        with vouch.run("measure"):
+            vouch.record("m.count", int(sys.argv[1]), desc="pairs")
+            vouch.record("m.acc", vouch.Stat.of([0.5, 0.7]), desc="accuracy")
+            vouch.claim("m.ok", True, desc="every pair checked")
+            vouch.table("m.tab", [{"id": "a", "n": 1}, {"id": "b", "n": 2}], row_key="id",
+                        desc="pairs by stage")
+    """)
+    project.write("figure.py", """
+        import vouch
+        if not vouch.fresh("figure"):
+            with vouch.run("figure"):
+                print("COUNT", vouch.value("m.count"))
+                print("MEAN", vouch.value("m.acc.mean"))
+                print("OK", vouch.value("m.ok"))
+                print("ROWS", vouch.value("m.tab"))
+                print("CELL", vouch.value("m.tab.b.n"))
+                try:
+                    vouch.value("m.cuont")
+                except KeyError as exc:
+                    print("UNKNOWN", exc)
+    """)
+    project.run("measure.py", "7", check=True)
+    out = project.run("figure.py", check=True).stdout
+    assert "COUNT 7" in out and "MEAN 0.6" in out and "OK True" in out and "CELL 2" in out
+    assert "ROWS [{'id': 'a', 'n': 1}, {'id': 'b', 'n': 2}]" in out
+    assert "UNKNOWN" in out and "not recorded by any run" in out and "m.count" in out
+    reads = project.record("figure")["reads"]
+    assert sorted(reads) == ["m.acc.mean", "m.count", "m.ok", "m.tab", "m.tab.b.n"]
+    assert {r["run"] for r in reads.values()} == {"measure"}
+
+    assert "COUNT" not in project.run("figure.py", check=True).stdout   # its record stands
+    project.run("measure.py", "7", check=True)
+    assert "COUNT" not in project.run("figure.py", check=True).stdout   # the same values
+    project.run("measure.py", "8", check=True)
+    assert "COUNT 8" in project.run("figure.py", check=True).stdout     # a value it drew moved
+
+    from conftest import edit
+    edit(project.root / "measure.py", "int(sys.argv[1])", "int(sys.argv[1]) + 0")
+    proc = project.run("figure.py", check=True)                         # upstream-stale: redrawn
+    assert "COUNT 8" in proc.stdout
+    assert "reads m.count from run measure, which is stale" in proc.stderr
+
+    project.write("own.py", """
+        import vouch
+        with vouch.run("measure"):
+            vouch.value("m.count")
+    """)
+    proc = project.run("own.py")
+    assert proc.returncode != 0 and "recorded by this run itself" in proc.stderr
+
+
 def test_fresh_lets_a_script_skip_a_run_whose_record_stands(project):
     """A run is the whole script, so a quick change to one part re-ran a slow part whose
     result could not have changed (21 minutes, for a claim taking milliseconds).

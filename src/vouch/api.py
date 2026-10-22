@@ -208,6 +208,9 @@ class Run:
         self._tables: dict[str, dict] = {}
         self._params: dict[str, Any] = {}
         self._tracked: dict[str, Any] = {}      # @vouch.track(over=...) calls, combined at the end
+        self._reads: dict[str, dict] = {}       # vouch.value(key): key -> {hash, run}
+        self._read_index = None                 # what the runs recorded, loaded at the first read
+        self._producers_checked: set[str] = set()
         self._started = _dt.datetime.now(_dt.timezone.utc)
         self._t0 = time.perf_counter()
         self._entered = False
@@ -506,6 +509,50 @@ class Run:
             self._inputs[rel] = h
         return h
 
+    def value(self, key: str) -> Any:
+        """What another run recorded under ``key``, as ``v[key]`` gives it in a definition:
+        a number, a ``Stat``, a bool for a claim, a table's rows as dicts.
+
+        A figure drawn inside a measurement run could be redrawn only by re-measuring, and
+        a figure run of its own had to read the numbers from a side file. The read is
+        recorded (``reads``), so this run goes stale when a value it read moves, and
+        upstream-stale while the run that recorded it is stale (SPEC §8.3).
+        """
+        self._check_open()
+        from .derived import UnknownKey, entry_hash
+        from .index import Index
+        with self._lock:
+            if self._read_index is None:
+                self._read_index = Index.load(self._config)
+            idx = self._read_index
+        e, t = idx.get(key), idx.tables.get(key)
+        if e is None:
+            sugg = idx.suggest(key)
+            raise UnknownKey(f"{key!r} is not recorded by any run"
+                             + (f" (did you mean {', '.join(sugg)}?)" if sugg else ""))
+        if e.run == self.id:
+            raise ValueError(f"{key} is recorded by this run itself ({self.id}), whose record "
+                             f"this run replaces; vouch.value reads what other runs record")
+        with self._lock:
+            self._reads[key] = {"hash": entry_hash(idx, key), "run": e.run}
+        self._warn_if_stale(e.run, key)
+        if e.kind == "table" and t is not None:
+            return [dict(zip(t.columns, row)) for row in t.rows]
+        return e.raw
+
+    def _warn_if_stale(self, producer: str | None, key: str) -> None:
+        """Say once, at the read, that the run a value comes from is not fresh."""
+        if not producer or producer in self._producers_checked:
+            return
+        self._producers_checked.add(producer)
+        from .freshness import assess
+        rec = self._read_index.runs.get(producer)
+        st = assess(self._config, {producer: rec}, check_env=False).get(producer) if rec else None
+        if st is not None and st.is_error:
+            _warn(f"run {self.id} reads {key} from run {producer}, which is {st.state} "
+                  f"({st.summary()}): re-run {producer} first, or {self.id} will be "
+                  f"upstream-stale")
+
     def artifact(self, path: str | os.PathLike, *, kind: str | None = None) -> None:
         """Declare an output file; hashed when the run ends, after it is written."""
         self._check_open()
@@ -646,7 +693,7 @@ class Run:
             artifacts[rel] = {"hash": h, "kind": meta["kind"], "site": meta["site"]}
         main_file = _project().main_file
         first_party = _first_party_files(cfg) if code is None or env is None else []
-        return {
+        record = {
             "schema": SCHEMA,
             "run": self.id,
             "status": "complete",
@@ -664,6 +711,9 @@ class Run:
             "artifacts": artifacts,
             "tables": dict(sorted(self._tables.items())),
         }
+        if self._reads:                          # only a run that read another run's values
+            record["reads"] = dict(sorted(self._reads.items()))
+        return record
 
 
 # ---------------------------------------------------------------------------
@@ -1082,7 +1132,11 @@ def fresh(run_id: str, params: Any = None) -> bool:
         for k, v in flatten(mapping).items():
             if recorded.get(sanitize_key(k)) != encode_param(v):
                 return False
-    st = assess(cfg, {run_id: rec}, check_env=False).get(run_id)
+    runs = {run_id: rec}
+    if rec.get("reads"):                # the values it read are compared with what runs hold now
+        from .store import load_runs
+        runs = {**load_runs(cfg.store), run_id: rec}
+    st = assess(cfg, runs, check_env=False).get(run_id)
     if st is None or st.state not in ("fresh", "cosmetic", "accepted"):
         return False
     _warn(f"run {run_id} is fresh (its code and inputs"
@@ -1123,6 +1177,12 @@ def claim(key: str, holds: Any = _MISSING, *, desc: str | None = None,
 
 def input(path: str | os.PathLike, *, mode: str | None = None) -> str | None:  # noqa: A001
     return active_run().input(path, mode=mode)
+
+
+def value(key: str) -> Any:
+    """``vouch.value(key)``: what another run recorded under ``key``, read in the active
+    run, which records the read and goes stale when that value moves (``Run.value``)."""
+    return active_run().value(key)
 
 
 def artifact(path: str | os.PathLike, *, kind: str | None = None) -> None:

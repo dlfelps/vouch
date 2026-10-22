@@ -66,6 +66,8 @@ def evaluate(dataset: str, model: str, seed: int = 0) -> dict:
   so finished configurations stay recorded.
 - A slow part beside quick ones: its own run, its body in a function, guarded with
   `if not vouch.fresh("slow_id"):` so that editing a quick part does not re-run it.
+  A figure of the slow run's numbers is a quick run that reads them with
+  `vouch.value(key)`, never through a side file of copied numbers.
 - A property the experiment checks: `vouch.claim(key, ok, desc=..., values={...})`
   where it is checked, with the numbers behind it.
 - A table: `vouch.table(key, rows, columns=[...], row_key="id", desc=...)`; every cell

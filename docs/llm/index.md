@@ -84,6 +84,7 @@ number.
 - a property the experiment checks is a `vouch.claim(key, ok, values={…})`, recorded with the numbers behind it
 - a table is `vouch.table(key, rows, row_key=…)`; every cell is citable as `<key>.<row>.<col>`
 - data goes through `vouch.input()`, outputs through `vouch.artifact()`; figures are saved inside the run
+- another run's numbers are read with `vouch.value(key)`, never copied through a side file
 - parameters go through `params=`, so hyperparameters in the paper are citable
 
 [Patterns for agents](patterns.md) works these through with examples, along with

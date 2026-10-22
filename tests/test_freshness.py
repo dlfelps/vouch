@@ -100,6 +100,48 @@ def test_upstream_and_regenerated_inputs(project):
     assert s["prep"].state == "stale" and s["fit"].state == "upstream-stale"
 
 
+def test_a_run_that_read_a_value_is_stale_once_the_value_moves(project):
+    # A figure drawn from a measurement's numbers, in a run of its own, read them through a
+    # side file. Read with vouch.value, the dependency is the value: a re-run that moves
+    # another value leaves the figure fresh, and one that moves a value it drew does not.
+    project.write("measure.py", '''
+        import sys, vouch
+        with vouch.run("measure"):
+            vouch.record("m.count", int(sys.argv[1]), desc="pairs")
+            vouch.record("m.seconds", float(sys.argv[2]), desc="wall time")
+    ''')
+    project.write("figure.py", '''
+        import vouch
+        with vouch.run("figure"):
+            vouch.value("m.count")
+    ''')
+    project.run("measure.py", "7", "1.0", check=True)
+    project.run("figure.py", check=True)
+    s = states(project)
+    assert s["measure"].state == "fresh" and s["figure"].state == "fresh"
+
+    project.run("measure.py", "7", "2.0", check=True)          # only the time moved
+    assert states(project)["figure"].state == "fresh"
+
+    project.run("measure.py", "8", "2.0", check=True)          # the count it drew moved
+    s = states(project)
+    assert s["figure"].state == "stale"
+    r = s["figure"].of("value-changed")[0]
+    assert (r.subject, r.detail) == ("m.count", "measure")
+    assert s["figure"].summary() == "value m.count (run measure) changed since the run"
+
+    project.run("figure.py", check=True)
+    assert states(project)["figure"].state == "fresh"
+    edit(project.root / "measure.py", "int(sys.argv[1])", "int(sys.argv[1]) + 0")
+    s = states(project)                                         # the producer's code changed
+    assert s["measure"].state == "stale" and s["figure"].state == "upstream-stale"
+
+    edit(project.root / "measure.py", 'vouch.record("m.count"', 'vouch.record("m.pairs"')
+    project.run("measure.py", "8", "2.0", check=True)          # the key it read is gone
+    s = states(project)
+    assert s["figure"].state == "stale" and s["figure"].of("value-missing")
+
+
 def test_tampered_artifact(project):
     project.write("exp.py", '''
         import vouch
