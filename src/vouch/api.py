@@ -211,6 +211,8 @@ class Run:
         self._reads: dict[str, dict] = {}       # vouch.value(key): key -> {hash, run}
         self._read_index = None                 # what the runs recorded, loaded at the first read
         self._producers_checked: set[str] = set()
+        self._traced = False                    # an explicit run: the tracker keeps its own set
+        self._executed: dict[str, set[str]] | None = None   # what it executed (tracing.py)
         self._started = _dt.datetime.now(_dt.timezone.utc)
         self._t0 = time.perf_counter()
         self._entered = False
@@ -614,8 +616,15 @@ class Run:
                 raise RuntimeError(f"vouch runs cannot nest: {_explicit.id!r} is still active")
             self._entered = True
             _explicit = self
+        _tracker.begin_run()                    # what executes from here is this run's
+        self._traced = True
         self._mark_running()
         return self
+
+    def _end_trace(self) -> None:
+        if self._traced:
+            self._traced = False
+            self._executed = _tracker.end_run()
 
     def _mark_running(self) -> None:
         """A marker naming this run while it records (inflight.py), for `vouch status`."""
@@ -639,6 +648,7 @@ class Run:
             self.finalize()
         else:
             self.closed = True
+            self._end_trace()
             self._unmark_running()
             what = exc_type.__name__
             if issubclass(exc_type, SystemExit):
@@ -656,6 +666,7 @@ class Run:
             from .tracked import flush
             flush(self)
         _tracker.report(_warn)
+        self._end_trace()
         record = self._build_record()
         proj = _project()
         ensure_store(proj.config.store)
@@ -704,7 +715,7 @@ class Run:
             "duration_s": round(time.perf_counter() - self._t0, 1),
             "git": _git_info(cfg.root),
             "env": env if env is not None else _env_info(cfg, first_party),
-            "code": code if code is not None else _code_info(cfg, first_party),
+            "code": code if code is not None else _code_info(cfg, first_party, self._executed),
             "inputs": dict(sorted(self._inputs.items())),
             "values": dict(sorted(self._values.items())),
             "claims": dict(sorted(self._claims.items())),
@@ -900,14 +911,18 @@ def _first_party_files(cfg: Config) -> list[str]:
     return sorted(files)
 
 
-def _code_info(cfg: Config, first_party: list[str]) -> dict:
+def _code_info(cfg: Config, first_party: list[str],
+               executed: dict[str, set[str]] | None = None) -> dict:
     """The code units this run depends on (SPEC §8.1-8.2).
 
     With function-level tracking: every module and class body of each first-party
     file the run loaded, plus the functions it actually executed -- hashed from the
     source *as it was when the run loaded it*. Files that can't be tracked by
     function (imported before tracking started, ...) count whole, and say why.
+    ``executed`` is an explicit run's own (``Tracker.end_run``); the implicit run
+    takes what the whole process executed.
     """
+    executed = _tracker.executed if executed is None else executed
     gran, why = _tracker.granularity(cfg.get("freshness", "granularity", "function"))
     units: dict[str, str] = {}
     files: dict[str, str | None] = {}
@@ -937,7 +952,7 @@ def _code_info(cfg: Config, first_party: list[str]) -> dict:
         keep = list(hashes)
         if gran == "function":
             reason = _tracker.whole.get(n)
-            ran = _tracker.executed.get(n, set())
+            ran = executed.get(n, set())
             unmapped = sorted(ran - set(hashes))
             if unmapped and not reason:
                 reason = f"executed code not found in the source ({', '.join(unmapped[:2])})"

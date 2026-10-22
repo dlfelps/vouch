@@ -60,9 +60,11 @@ with vouch.run("examples"):
     examples()
 ```
 
-The functions matter. Freshness is per function, so an edit inside `examples()`
-leaves the slow run fresh; the same edit written inline at module level changes the
-script's `<module>` unit, which both runs executed, and both go stale. `vouch.fresh`
+The functions matter. Freshness is per function, and each run records the functions
+it executed itself (and whatever ran outside every run), not those the other run did, in
+whichever order they run. So an edit inside `examples()` leaves the slow run fresh, and an
+edit inside `search()` leaves the quick one fresh; the same edit written inline at module
+level changes the script's `<module>` unit, which both runs executed, and both go stale. `vouch.fresh`
 is for runs whose result their code, inputs and parameters determine (seeded); pass
 `params=` when those can change. While a run is going, `vouch status` shows it as
 running, with its process, rather than as stale; a run killed before it ended shows

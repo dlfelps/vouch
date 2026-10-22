@@ -35,7 +35,14 @@ zero.
 
 It records executed units (mapping each code object's `co_qualname` to its
 unit) and source snapshots (each file's text as it was when the run first
-loaded it).
+loaded it). The executed units are every first-party function the run called, at
+any depth: an edit to a library function the run's code calls makes the run
+stale, though the script itself did not change.
+
+Several runs in one process each record what they executed themselves, with
+whatever ran outside every run before they ended (setup, or data computed
+between two runs), and not what the other runs executed. A function two runs
+call is recorded in both.
 
 Consequences:
 

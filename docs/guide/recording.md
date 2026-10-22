@@ -51,9 +51,10 @@ with vouch.run("cifar_resnet", params=args) as run:
 **A slow part and a quick one.** A run is its whole block, so a quick change to a script
 re-ran its slow part too. Give each part a run of its own, with its body in a function:
 freshness is tracked per function (Python 3.12 and later; per file before, so use two
-scripts there), and an edit inside one function leaves the other run fresh. An edit to
-the module-level code around them changes the script's `<module>` unit, which both runs
-executed, and makes both stale. Then skip the slow run while its record stands:
+scripts there), and each run records only the functions it executed, with whatever ran
+outside every run, so an edit inside one function leaves the other run fresh, whichever
+runs first. An edit to the module-level code around them changes the script's `<module>`
+unit, which both runs executed, and makes both stale. Then skip the slow run while its record stands:
 
 ```python
 def search():                     # the slow part: twenty minutes

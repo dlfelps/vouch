@@ -1,14 +1,16 @@
 """Which functions did the run actually execute? (SPEC §8.2)
 
 On ``import vouch`` a ``sys.monitoring`` (PEP 669) callback is registered for
-``PY_START``. It returns ``DISABLE``, so it fires at most once per code object for
-the whole process: the cost is one call per distinct function, whatever the run
-does in its inner loops.
+``PY_START``. It returns ``DISABLE``, so it fires at most once per code object until
+the events are restarted, which happens as each explicit run starts and ends: the cost
+is one call per distinct function per run, whatever the run does in its inner loops.
 
 Two things are recorded:
 
 * **executed units** -- ``file -> {qualname}``, with ``<locals>`` collapsed to the
-  enclosing definition (``units.unit_of_qualname``);
+  enclosing definition (``units.unit_of_qualname``). An explicit run depends on what
+  it executed itself and on what ran outside every run before it ended (setup, data
+  computed between runs); not on what other runs in the process executed;
 * **source snapshots** -- each file's text *as it was when the run first loaded
   it*. A three-hour run whose model file is edited halfway through must record the
   code that ran, not the code on disk when it finished.
@@ -105,7 +107,9 @@ class Tracker:
         self.active = False
         self.why_not: str | None = None
         self.tool: int | None = None
-        self.executed: dict[str, set[str]] = {}
+        self.executed: dict[str, set[str]] = {}  # the whole process: the implicit run's
+        self.outside: dict[str, set[str]] = {}   # while no explicit run was in progress
+        self.current: dict[str, set[str]] | None = None   # the explicit run in progress
         self.snapshots: dict[str, str] = {}
         self.paths: dict[str, str] = {}          # normalized -> as Python saw it (keeps case)
         self.whole: dict[str, str] = {}          # file -> why it is tracked whole
@@ -153,7 +157,7 @@ class Tracker:
             fn = code.co_filename
             if self._candidate(fn):
                 n = _norm(fn)
-                self.executed.setdefault(n, set()).add(unit_of_qualname(code.co_qualname))
+                self._add(n, unit_of_qualname(code.co_qualname))
                 if n not in self.snapshots:
                     self._snapshot(fn)
                 if self.rules:
@@ -305,9 +309,50 @@ class Tracker:
     def _note_code(self, code) -> None:
         fn = code.co_filename
         if self._candidate(fn):
-            self.executed.setdefault(_norm(fn), set()).add(
-                unit_of_qualname(getattr(code, "co_qualname", code.co_name)))
+            self._add(_norm(fn), unit_of_qualname(getattr(code, "co_qualname", code.co_name)))
             self._snapshot(fn)
+
+    def _add(self, n: str, unit: str) -> None:
+        self.executed.setdefault(n, set()).add(unit)
+        where = self.current if self.current is not None else self.outside
+        where.setdefault(n, set()).add(unit)
+
+    # -- explicit runs: what each one executed ---------------------------------------
+    #
+    # Executed code was kept for the whole process, so a run inherited every function an
+    # earlier run in the process had executed: the quick run of a split listed the slow
+    # run's search, and an edit to the search made both stale. And since a code object
+    # fires once, keeping a set per run would not do alone: a library function both runs
+    # call would be seen in the first only, and an edit to it would leave the second
+    # wrongly fresh. So the events restart as a run starts, and again as it ends, for code
+    # run between two runs, which the next one may depend on.
+
+    def _restart(self) -> None:
+        if self.active:
+            try:
+                sys.monitoring.restart_events()
+            except Exception:  # pragma: no cover
+                pass
+
+    def begin_run(self) -> None:
+        """An explicit run starts: what executes from here is its own."""
+        self.current = {}
+        if not self.active:     # untracked (< 3.12, stopped): an executed set would claim
+            return              # function granularity that nothing observed
+        self._restart()
+        frame = sys._getframe(1)            # the functions the `with` block is inside
+        while frame is not None:
+            self._note_code(frame.f_code)
+            frame = frame.f_back
+
+    def end_run(self) -> dict[str, set[str]]:
+        """The explicit run ends: what it executed, with what ran outside every run."""
+        own, self.current = self.current or {}, None
+        self._restart()
+        units = {n: set(u) for n, u in self.outside.items()}
+        for n, u in own.items():
+            units.setdefault(n, set()).update(u)
+        return units
 
     # -- lifecycle -------------------------------------------------------------------
 

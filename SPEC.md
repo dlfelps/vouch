@@ -1017,7 +1017,7 @@ Nested definitions and lambdas (`f.<locals>.g`, `<lambda>`, `<genexpr>`) belong 
 
 ### 8.2 Function-level tracking (Python ≥ 3.12)
 
-On `import vouch`, vouch registers a `sys.monitoring` (PEP 669) `PY_START` callback under a free tool id. It tries 3, 4, 5 and 2 in that order, so debuggers (0) and coverage.py (1) are never displaced. The callback returns `DISABLE`, so it fires at most once per code object for the whole process. Its cost is one call per distinct function, however hot the run's loops are. Measured worst case, a tight pure-Python loop: 1–2%, within run-to-run noise. For code that spends its time in numpy or torch, the cost is zero.
+On `import vouch`, vouch registers a `sys.monitoring` (PEP 669) `PY_START` callback under a free tool id. It tries 3, 4, 5 and 2 in that order, so debuggers (0) and coverage.py (1) are never displaced. The callback returns `DISABLE`, so it fires at most once per code object until the events are restarted, which vouch does as each explicit run starts and ends. Its cost is one call per distinct function per run, however hot the run's loops are. Measured worst case, a tight pure-Python loop: 1–2%, within run-to-run noise. For code that spends its time in numpy or torch, the cost is zero.
 
 It records two things:
 
@@ -1026,7 +1026,18 @@ It records two things:
 
 A run records, per first-party file:
 - every module and class unit, since they run at import
-- the functions it executed
+- the functions it executed, at any depth: a library function the run's own code calls
+  counts as much as the script's
+
+**Several runs in one process.** An explicit run's functions are those executed while it
+was in progress, plus those executed outside every run before it ended: setup before the
+first run, and code run between two runs, whose results the next one may use. They are not
+those another run executed. The events restart as a run starts, so a function that two runs
+call is recorded in both, and again as it ends, so code run between runs is seen even if a
+run called it already. The implicit run takes everything the process executed. (Up to 0.5 the executed set
+was kept for the whole process: a run inherited every function an
+earlier run in the process had executed, so a split's quick run, recorded after its slow
+run, went stale with an edit to the slow part.)
 
 Consequences:
 

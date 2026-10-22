@@ -396,6 +396,17 @@ def test_a_run_is_marked_while_it_records(project):
     assert not (project.root / ".vouch/cache/running/exp.json").exists()   # gone at exit
 
 
+def test_an_untracked_process_never_claims_function_granularity():
+    """A run's start notes the functions on the stack, for runs that each keep their own
+    executed code. Untracked (Python < 3.12, or the tracker stopped), that would leave a
+    non-empty executed set, which granularity() reads as tracking: a run would claim a
+    precision that nothing observed, and an edit to code it called would leave it fresh."""
+    from vouch.tracing import Tracker
+    t = Tracker()
+    t.begin_run()
+    assert t.end_run() == {} and t.granularity("function")[0] == "module"
+
+
 def test_value_reads_what_another_run_recorded(project):
     """Relabelling a figure drawn inside a measurement run re-ran the measurement, and its
     timings moved within noise. A figure run of its own had to read the numbers from a side

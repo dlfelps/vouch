@@ -293,6 +293,58 @@ def test_functions_run_in_threads_are_recorded(project):
     assert "lib.py::unused" in code(project)["units"]
 
 
+def test_runs_in_one_process_each_record_what_they_executed(project):
+    # Executed code was kept per process: a second run inherited every function the first
+    # one ran (the quick run of a split listed the slow run's search), so an edit there made
+    # it stale too. Each function was also seen only at its first call, so keeping a set per
+    # run without seeing calls again would lose a library function both runs call, and an
+    # edit to it would leave the second run wrongly fresh.
+    project.write("lib.py", '''
+        def shared():
+            return 1
+
+        def only_a():
+            return 2
+
+        def only_b():
+            return 3
+
+        def between():
+            return 4
+    ''')
+    project.write("exp.py", '''
+        import vouch
+        from lib import between, only_a, only_b, shared
+
+        def part_a():
+            return shared() + only_a() + between()
+
+        def part_b(x):
+            return shared() + only_b() + x
+
+        with vouch.run("a"):
+            vouch.record("a.v", part_a(), desc="a")
+        x = between()                        # outside any run: the run after may use it
+        with vouch.run("b"):
+            vouch.record("b.v", part_b(x), desc="b")
+    ''')
+    project.run("exp.py", check=True)
+    a, b = set(code(project, "a")["units"]), set(code(project, "b")["units"])
+    assert {"lib.py::shared", "lib.py::only_a", "lib.py::between", "exp.py::part_a"} <= a
+    assert not a & {"lib.py::only_b", "exp.py::part_b"}
+    assert {"lib.py::shared", "lib.py::only_b", "lib.py::between", "exp.py::part_b"} <= b
+    assert not b & {"lib.py::only_a", "exp.py::part_a"}
+
+    edit(project.root / "lib.py", "return 2", "return 20")                  # only_a
+    assert state(project, "a").state == "stale" and state(project, "b").state == "cosmetic"
+    edit(project.root / "lib.py", "return 20", "return 2")
+    edit(project.root / "lib.py", "return 1", "return 10")                  # shared, by both
+    assert state(project, "a").state == "stale" and state(project, "b").state == "stale"
+    edit(project.root / "lib.py", "return 10", "return 1")
+    edit(project.root / "lib.py", "return 4", "return 40")                  # between
+    assert state(project, "b").state == "stale"
+
+
 def test_unit_of_qualname_edge_cases():
     assert unit_of_qualname("Model.<lambda>") == "Model"
     assert unit_of_qualname("<generic parameters of f>") == MODULE
