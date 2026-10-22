@@ -9,21 +9,27 @@ from vouch import changes as ch
 from vouch.config import Config
 
 
-def cur(raw, *, type_="float", rendered=None, plain=None, source="run:r", kind="value"):
+def cur(raw, *, type_="float", rendered=None, plain=None, source="run:r", kind="value",
+        entry=None):
     r = rendered if rendered is not None else [str(raw)]
-    return ch.Current("k", kind, type_, raw, r, plain if plain is not None else r, source)
+    return ch.Current("k", kind, type_, raw, r, plain if plain is not None else r, source,
+                      entry)
 
 
-def base(raw, *, type_="float", rendered=None, source="run:r", kind="value"):
-    return {"kind": kind, "type": type_, "raw": raw, "rendered": rendered or [str(raw)],
-            "plain": rendered or [str(raw)], "source": source, "acked": "2026-09-10T00:00:00Z",
-            "by": "me", "why": "x"}
+def base(raw, *, type_="float", rendered=None, source="run:r", kind="value", entry=None):
+    out = {"kind": kind, "type": type_, "raw": raw, "rendered": rendered or [str(raw)],
+           "plain": rendered or [str(raw)], "source": source, "acked": "2026-09-10T00:00:00Z",
+           "by": "me", "why": "x"}
+    if entry:
+        out["entry"] = entry
+    return out
 
 
-def classify(tmp_path, old, new, threshold=0.10):
+def classify(tmp_path, old, new, threshold=0.10, entries=None):
     cfg = Config(tmp_path, {"changes": {"rel_threshold": threshold}})
     baseline = {"k": old} if old is not None else {}
-    out = ch.compute(cfg, baseline, {"k": new}, {"k": [ch.Citing("p.tex", 3, "s")]})
+    out = ch.compute(cfg, baseline, {"k": new}, {"k": [ch.Citing("p.tex", 3, "s")]},
+                     entries=entries)
     return out[0] if out else None
 
 
@@ -68,6 +74,36 @@ def test_stat_sample_size_and_type_and_source(tmp_path):
 
     c = classify(tmp_path, base(0.9, source="run:a"), cur(0.9, source="run:b"))
     assert c.cls == "suspicious" and "now produced by b (was a)" in c.reasons
+
+
+def test_a_move_between_runs_of_one_script_is_not_suspicious(tmp_path):
+    # A run split into a slow run and a quick one (vouch.fresh) moved keys to the new run,
+    # values unchanged, and each one waited for an ack as SUSPICIOUS, "now produced by
+    # examples_search (was examples)". The user decided (D31): within one script, a move is
+    # not suspicious. It can't have made a sentence wrong, so it is acknowledged for you.
+    split = classify(tmp_path, base(0.9, source="run:a", entry="exp.py"),
+                     cur(0.9, source="run:b", entry="exp.py"))
+    assert split.cls == "moved" and not split.pending
+    assert split.reasons == ["now produced by run b of the same script, exp.py (was run a)"]
+
+    elsewhere = classify(tmp_path, base(0.9, source="run:a", entry="exp.py"),
+                         cur(0.9, source="run:b", entry="other.py"))
+    assert elsewhere.cls == "suspicious"                     # another script: as before
+
+    moved_and_changed = classify(tmp_path, base(0.9, source="run:a", entry="exp.py"),
+                                 cur(0.7, source="run:b", entry="exp.py"))
+    assert moved_and_changed.cls == "suspicious"             # judged on the value alone
+    assert not any("now produced by" in r for r in moved_and_changed.reasons)
+    small = classify(tmp_path, base(0.932, source="run:a", entry="exp.py", rendered=["93.2"]),
+                     cur(0.935, source="run:b", entry="exp.py", rendered=["93.5"]))
+    assert small.cls == "changed" and small.reasons == []
+
+    # a baseline acknowledged before entries were kept: the old run's own record says
+    old = base(0.9, source="run:a")
+    assert classify(tmp_path, old, cur(0.9, source="run:b", entry="exp.py"),
+                    entries={"a": "exp.py", "b": "exp.py"}).cls == "moved"
+    assert classify(tmp_path, old, cur(0.9, source="run:b", entry="exp.py"),
+                    entries={"b": "exp.py"}).cls == "suspicious"   # unknown: as before
 
 
 def test_threshold_is_configurable(tmp_path):

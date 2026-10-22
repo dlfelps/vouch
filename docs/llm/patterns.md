@@ -66,7 +66,9 @@ whichever order they run. So an edit inside `examples()` leaves the slow run fre
 edit inside `search()` leaves the quick one fresh; the same edit written inline at module
 level changes the script's `<module>` unit, which both runs executed, and both go stale. `vouch.fresh`
 is for runs whose result their code, inputs and parameters determine (seeded); pass
-`params=` when those can change. While a run is going, `vouch status` shows it as
+`params=` when those can change. Splitting an existing run moves the slow part's keys to the
+new run; their values are unchanged and their script is the same, so `vouch build`
+acknowledges them for you (`moved`) and nothing waits for review. While a run is going, `vouch status` shows it as
 running, with its process, rather than as stale; a run killed before it ended shows
 as interrupted.
 

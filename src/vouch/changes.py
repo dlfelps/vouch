@@ -31,7 +31,7 @@ HISTORY = "history.jsonl"
 NOTIFIED = "cache/notified.json"
 
 PENDING = ("changed", "suspicious", "figure-changed")
-AUTO = ("new", "hidden", "reformatted")
+AUTO = ("new", "hidden", "reformatted", "moved")
 
 
 @dataclasses.dataclass
@@ -43,6 +43,7 @@ class Current:
     rendered: list[str]
     plain: list[str]
     source: str
+    entry: str | None = None     # the script of the run that produced it (run sources only)
 
 
 @dataclasses.dataclass
@@ -56,7 +57,7 @@ class Citing:
 @dataclasses.dataclass
 class Change:
     key: str
-    cls: str                     # new hidden reformatted changed suspicious figure-changed
+    cls: str                     # new hidden reformatted moved changed suspicious figure-changed
     reasons: list[str]
     old: dict | None
     new: Current
@@ -111,8 +112,11 @@ def append_history(cfg: Config, events: list[dict]) -> None:
 
 
 def baseline_entry(cur: Current, *, by: str, why: str, when: str) -> dict:
-    return {"kind": cur.kind, "type": cur.type, "raw": cur.raw, "rendered": cur.rendered,
-            "plain": cur.plain, "source": cur.source, "acked": when, "by": by, "why": why}
+    out = {"kind": cur.kind, "type": cur.type, "raw": cur.raw, "rendered": cur.rendered,
+           "plain": cur.plain, "source": cur.source, "acked": when, "by": by, "why": why}
+    if cur.entry:
+        out["entry"] = cur.entry
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +127,10 @@ def currents(idx: Index, plans) -> tuple[dict[str, Current], dict[str, list[Citi
     """The present state of every key the papers cite, and where each is cited."""
     cur: dict[str, Current] = {}
     cites: dict[str, list[Citing]] = {}
+
+    def entry_of(run: str | None) -> str | None:
+        return (idx.runs.get(run) or {}).get("entry") if run else None
+
     for pl in plans:
         doc = pl.doc
         fmts: dict[str, list[str]] = {}
@@ -145,7 +153,7 @@ def currents(idx: Index, plans) -> tuple[dict[str, Current], dict[str, list[Citi
                 fig = idx.figures.get(c.key)
                 if fig is not None:
                     cur[c.key] = Current(c.key, "figure", "figure", fig.hash, [], [],
-                                         f"run:{fig.run}")
+                                         f"run:{fig.run}", entry_of(fig.run))
         for k, fl in fmts.items():
             e = idx.get(k)
             if e is None or e.kind in ("claim", "table"):
@@ -157,7 +165,8 @@ def currents(idx: Index, plans) -> tuple[dict[str, Current], dict[str, list[Citi
             if k in cur:          # cited by several papers: merge their formats
                 rendered = sorted(set(cur[k].rendered) | set(rendered))
                 plain = sorted(set(cur[k].plain) | set(plain))
-            cur[k] = Current(k, "value", kind, payload, rendered, plain, origin(e))
+            cur[k] = Current(k, "value", kind, payload, rendered, plain, origin(e),
+                             None if e.extra.get("derived") else entry_of(e.run))
         for c in doc.citations:
             if c.kind == "claim":
                 e = idx.get(c.key)
@@ -168,7 +177,8 @@ def currents(idx: Index, plans) -> tuple[dict[str, Current], dict[str, list[Citi
                     raw = {"holds": bool(e.raw), "values": e.extra.get("values") or {}}
                     if e.extra.get("margin") is not None:
                         raw["margin"] = e.extra["margin"]
-                    cur[c.key] = Current(c.key, "claim", "claim", raw, [word], [word], origin(e))
+                    cur[c.key] = Current(c.key, "claim", "claim", raw, [word], [word], origin(e),
+                                         None if e.extra.get("derived") else entry_of(e.run))
     return cur, cites
 
 
@@ -204,10 +214,12 @@ def primary(kind: str, raw: Any) -> list[float]:
     return []
 
 
-def heuristics(old: dict, new: Current, rel_threshold: float) -> tuple[list[str], float | None, float | None]:
-    """Why a change looks like a possible problem, plus its delta and relative size."""
+def heuristics(old: dict, new: Current, rel_threshold: float,
+               within: bool = False) -> tuple[list[str], float | None, float | None]:
+    """Why a change looks like a possible problem, plus its delta and relative size.
+    ``within``: the producer moved to another run of the same script, which is no reason."""
     reasons: list[str] = []
-    if old.get("source") != new.source:
+    if old.get("source") != new.source and not within:
         reasons.append(f"now produced by {new.source.split(':', 1)[1]} "
                        f"(was {str(old.get('source', '?')).split(':', 1)[-1]})")
     if old.get("type") != new.type:
@@ -240,9 +252,29 @@ def heuristics(old: dict, new: Current, rel_threshold: float) -> tuple[list[str]
     return list(dict.fromkeys(reasons)), delta, rel
 
 
+def _run_of(source: Any) -> str | None:
+    s = str(source or "")
+    return s[4:] if s.startswith("run:") else None
+
+
+def same_script(old: dict, new: Current, entries: dict[str, str | None]) -> bool:
+    """Whether a value's producer moved to another run of the same script: a run split in
+    two (a slow part guarded by vouch.fresh, a quick one). The old run's script is the one
+    the baseline kept, or, for a baseline acknowledged before it kept one, the one the old
+    run's record names now. Unknown is not the same."""
+    if not (_run_of(old.get("source")) and _run_of(new.source) and new.entry):
+        return False
+    was = old.get("entry") or entries.get(_run_of(old.get("source")) or "")
+    return was == new.entry
+
+
 def compute(cfg: Config, baseline: dict[str, dict], current: dict[str, Current],
-            cites: dict[str, list[Citing]]) -> list[Change]:
+            cites: dict[str, list[Citing]],
+            entries: dict[str, str | None] | None = None) -> list[Change]:
+    """``entries``: each run's script (its record's ``entry``), for baselines that predate
+    the ``entry`` they now keep."""
     threshold = float(cfg.get("changes", "rel_threshold", 0.10) or 0.10)
+    entries = entries or {}
     out: list[Change] = []
     for key in sorted(current):
         cur = current[key]
@@ -258,11 +290,20 @@ def compute(cfg: Config, baseline: dict[str, dict], current: dict[str, Current],
         same_raw = same(old.get("raw"), cur.raw) and old.get("type") == cur.type
         same_text = sorted(old.get("rendered", [])) == sorted(cur.rendered)
         moved_source = old.get("source") != cur.source
+        # A move to another run of the same script, the value unchanged, is a run split:
+        # it was suspicious, "now produced by", and every key a split moved waited for an
+        # ack though no value or sentence had changed. Not suspicious (decision D31).
+        within = moved_source and same_script(old, cur, entries)
+        if same_raw and within:
+            out.append(Change(key, "moved", [f"now produced by run {_run_of(cur.source)} of "
+                                             f"the same script, {cur.entry} (was run "
+                                             f"{_run_of(old.get('source'))})"], old, cur, where))
+            continue
         if same_raw and not moved_source:
             if not same_text:
                 out.append(Change(key, "reformatted", [], old, cur, where))
             continue
-        reasons, delta, rel = heuristics(old, cur, threshold)
+        reasons, delta, rel = heuristics(old, cur, threshold, within)
         if same_raw and moved_source:
             out.append(Change(key, "suspicious", reasons, old, cur, where))
         elif same_text and not reasons and cur.kind == "value":
@@ -289,7 +330,8 @@ def auto_acknowledge(cfg: Config, baseline: dict[str, dict], changes: list[Chang
         if ch.cls not in AUTO:
             continue
         why = {"new": "first cited", "hidden": "moved within the printed rounding",
-               "reformatted": "format changed"}[ch.cls]
+               "reformatted": "format changed",
+               "moved": "moved to another run of the same script"}[ch.cls]
         baseline[ch.key] = baseline_entry(ch.new, by="vouch build", why=why, when=when)
         if ch.cls != "new":
             events.append({"when": when, "event": ch.cls, "key": ch.key,

@@ -63,6 +63,50 @@ def test_code_edit_makes_the_cited_run_stale_but_not_out_of_sync(example, capsys
     assert e["detail"]["reasons"][0]["subject"] == "models.py::nearest_centroid"
 
 
+def test_splitting_a_run_needs_no_acknowledgment(project, capsys):
+    # The documented split (a slow run beside a quick one) moved the slow part's keys to a
+    # new run of the same script, values unchanged, and each waited for an ack as SUSPICIOUS.
+    project.write("vouch.toml", '[[paper]]\nmain = "paper/main.tex"\n')
+    project.write("paper/main.tex", "\\documentclass{article}\n\\usepackage{vouch}\n"
+                  "\\begin{document}\n\\vouch{slow.n} and \\vouch{quick.n}.\n\\end{document}\n")
+    project.write("exp.py", '''
+        import vouch
+        with vouch.run("all"):
+            vouch.record("slow.n", 456, desc="the slow part")
+            vouch.record("quick.n", 1, desc="the quick part")
+    ''')
+    project.run("exp.py", check=True)
+    build(Config.load(project.root), notify=False)
+    acked = project.root / ".vouch/acknowledged.json"         # as acknowledged by 0.6: no
+    doc = json.loads(acked.read_text(encoding="utf-8"))       # entry, so the old run's
+    for v in doc["keys"].values():                            # record must say
+        v.pop("entry", None)
+    acked.write_text(json.dumps(doc), encoding="utf-8")
+    project.write("exp.py", '''
+        import vouch
+
+        def slow():
+            vouch.record("slow.n", 456, desc="the slow part")
+
+        def quick():
+            vouch.record("quick.n", 1, desc="the quick part")
+
+        with vouch.run("all_slow"):
+            slow()
+        with vouch.run("all"):
+            quick()
+    ''')
+    project.run("exp.py", check=True)
+    capsys.readouterr()
+    assert cli.main(["build", "--root", str(project.root)]) == 0
+    out = capsys.readouterr().out
+    assert "1 key(s) now come from another run of the same script (all -> all_slow)" in out
+    code, rep = check_json(project.root, capsys)
+    assert code == 0 and not [i for i in rep["issues"] if i["check"] == "changed"]
+    events = (project.root / ".vouch/history.jsonl").read_text(encoding="utf-8").splitlines()
+    assert json.loads(events[-1])["event"] == "moved" and json.loads(events[-1])["key"] == "slow.n"
+
+
 def test_rerun_moves_values_then_ack(example, capsys):
     built(example)
     edit(example / "models.py", CENTROID, MANHATTAN)

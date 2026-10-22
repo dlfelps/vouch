@@ -641,7 +641,8 @@ def plan(cfg: Config, *, check_env: bool = True, only: list[dict] | None = None,
     plans = [prepare_paper(cfg, idx, p, states) for p in chosen]
     baseline = ch.load_baseline(cfg)
     current, cites = ch.currents(idx, plans)
-    changes = ch.compute(cfg, baseline, current, cites)
+    changes = ch.compute(cfg, baseline, current, cites,
+                         entries={r: rec.get("entry") for r, rec in idx.runs.items()})
     ctx = Context(cfg, idx, states, baseline, plans, changes, project, outcome)
     for pl in plans:
         emit_paper(ctx, pl)

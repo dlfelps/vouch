@@ -1135,6 +1135,7 @@ A number can be updated correctly and still leave its sentence wrong ("the best 
 | `suspicious` | a `changed` value that also matches a problem heuristic (below) | warning labeled **POSSIBLE PROBLEM**; **error with `--strict`** |
 | `hidden` | the raw value moved, but the printed rounding hides it (asqc's snapshot insight) | info. Reported once by `build`, logged to `history.jsonl`, then acknowledged automatically: the printed text can't have become wrong, but the move may reveal nondeterminism. |
 | `reformatted` | only the format changed (the raw value is identical) | info; acknowledged automatically |
+| `moved` | the raw value is identical, and its producer is another run of the same script (a run split in two, a slow part and a quick one) | info; acknowledged automatically, logged to `history.jsonl`. A move to another script, or to a run whose script is unknown, is `suspicious` |
 | `figure-changed` | a cited figure's artifact hash differs from the acknowledged one (re-read the caption) | warning; **error with `--strict`** |
 | `fragile` | a claim still holds, but by less than `changes.claim_margin` | warning |
 | `false-claim` | a claim no longer holds | **error** (always) |
@@ -1148,7 +1149,7 @@ A number can be updated correctly and still leave its sentence wrong ("the best 
 | large move | `|new − old| / |old| > rel_threshold` (default 10%) |
 | order of magnitude | `|log10(new/old)| ≥ 1` |
 | sample size | a `Stat`'s `n` changed (seed count changed) |
-| provenance moved | the key is now produced by a different run or derivation |
+| provenance moved | the key is now produced by a different run or derivation; not when the new run belongs to the same script (the run's `entry`, kept in the baseline), which is `moved` if the value is the same and is judged on the value alone if it is not |
 | type changed | e.g. `float` → `stat` |
 | direction reversed | for keys with `better`, a comparison-bearing derived value or claim input moved against its `better` direction beyond the threshold |
 
@@ -1309,7 +1310,7 @@ Every command accepts `--root DIR`. These commands also accept `--json`, which e
 | Command | Does |
 |---|---|
 | `vouch init [--paper FILE] [--hook] [--agents]` | Writes `vouch.toml`, detects the main `.tex`, copies `vouch.sty`, adds `.gitignore` entries (`.vouch/cache/`), and prints the `\usepackage` line to add. `--hook` installs the pre-commit hook; `--agents` installs the LLM layer (§13.5). In a project that has `vouch.toml` it is a refresh, the fix for `sty-outdated`: it keeps `vouch.toml`, replaces an outdated `vouch.sty` beside each paper, adds vouch's `.gitattributes` lines if they are missing, and installs nothing without `--hook` or `--agents`. Only a new project (one it wrote `vouch.toml` or a first `vouch.sty` for) is shown the next steps. |
-| `vouch build [--no-notify]` | Evaluates `vouch_values.py`, renders the values file, tables (and the provenance CSV if `provenance_csv` is set) and catalog, refreshes annotations if enabled, auto-acknowledges new, `hidden` and `reformatted` changes, and prints the change block (§9.3). |
+| `vouch build [--no-notify]` | Evaluates `vouch_values.py`, renders the values file, tables (and the provenance CSV if `provenance_csv` is set) and catalog, refreshes annotations if enabled, auto-acknowledges new, `hidden`, `reformatted` and `moved` changes, and prints the change block (§9.3). |
 | `vouch watch [--interval SEC] [--then CMD] [--no-notify] [--quiet]` | Builds, then rebuilds whenever a run record, `vouch.toml`, a values module or a paper `.tex` changes (stdlib polling; the build's own outputs never trigger it). Prints the values that moved since the previous build. `--then` runs a command (e.g. `latexmk`) after each build that wrote files. Never runs an experiment. |
 | `vouch check [--strict] [--quiet] [--verbose] [--json] [--no-env] [--paper FILE]` | The gate (§11). Read-only. Target: under 1 s. `--verbose` also prints the informational notes (values nobody cites, runs recorded on a dirty tree, cosmetic code changes); `--no-env` skips the package-version drift check. `--quiet` prints only problems, and collapses pending `expect()` values, the planned state of a draft, to one line pointing at `vouch todo`; under `--strict` they are errors and are printed in full. Changes a build has already reported are one line in either mode (§9.3). A failing check names its errors on its last line. `--paper` gates one `[[paper]]` of several; a file that no `[[paper]]` lists is an error. |
 | `vouch lint [FILE]…` | The edit hook's check (§13.5): unknown keys, malformed macros and typed numbers, on the files named, or every file of every paper. For edits that never reach the hook, such as a script's. Reads the index `build` writes; exit 1 if any file has a problem. |

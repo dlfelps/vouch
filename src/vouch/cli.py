@@ -300,6 +300,13 @@ def _print_build(cfg: Config, res) -> None:
     for a in hidden:
         C.out(f"  · hidden         {a.key} moved within the printed rounding "
               f"({ch.describe_delta(a) or 'tiny change'}); logged to .vouch/history.jsonl")
+    moved = [a for a in res.auto_acked if a.cls == "moved"]
+    if moved:                                   # a run split: one line, however many keys
+        pairs = sorted({f"{ch._run_of((a.old or {}).get('source'))} -> {ch._run_of(a.new.source)}"
+                        for a in moved})
+        C.out(f"  · moved          {len(moved)} key(s) now come from another run of the same "
+              f"script ({', '.join(pairs)}), values unchanged; acknowledged, logged to "
+              f".vouch/history.jsonl")
     print_changes(res.ctx.changes, seen=res.reported_before)
     if res.notify_error:
         C.out(f"  ! {res.notify_error}")

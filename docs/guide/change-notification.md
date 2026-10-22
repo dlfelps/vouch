@@ -26,14 +26,15 @@ baseline:
 | `suspicious` | a `changed` value that also matches a problem heuristic (below) | warning labeled **POSSIBLE PROBLEM**; **error with `--strict`** |
 | `hidden` | the raw value moved, but the printed rounding hides it | info; acknowledged automatically |
 | `reformatted` | only the format changed (the raw value is identical) | info; acknowledged automatically |
+| `moved` | the raw value is identical, and its producer is another run of the same script (a run split in two, a slow part and a quick one) | info; acknowledged automatically, logged to `history.jsonl`. A move to another script, or to a run whose script is unknown, is `suspicious` |
 | `figure-changed` | a cited figure's artifact hash differs from the acknowledged one | warning; **error with `--strict`** |
 | `fragile` | a claim still holds, but by less than `changes.claim_margin` | warning |
 | `false-claim` | a claim no longer holds | **error** (always) |
 
 **Problem heuristics** (each can be toggled in `[changes]`): sign flip, non-finite,
 large move (`\|new − old\| / \|old\| > rel_threshold`, default 10%), order of
-magnitude, sample size change, provenance moved, type changed, direction
-reversed.
+magnitude, sample size change, provenance moved (to another script: a move between
+runs of the same script is not a problem), type changed, direction reversed.
 
 ## Where you hear about it
 

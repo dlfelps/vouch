@@ -46,7 +46,7 @@ $ vouch init
 
 Evaluate `vouch_values.py`, render the values file, tables and provenance CSV
 (if `provenance_csv` is set) and catalog, refresh source annotations if
-enabled, auto-acknowledge new/`hidden`/`reformatted` changes, and print the
+enabled, auto-acknowledge new/`hidden`/`reformatted`/`moved` changes, and print the
 change block.
 
 ```console

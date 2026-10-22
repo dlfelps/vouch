@@ -72,7 +72,8 @@ with vouch.run("examples"):
 
 `vouch.fresh` compares parameters only when it is given them, `vouch.fresh(id,
 params=args)`; it is for runs whose result their code, inputs and parameters
-determine.
+determine. The keys that splitting a run moves to the new one keep their values and
+their script, so `vouch build` acknowledges them for you (`moved`).
 
 **A figure from a slow run's numbers.** A figure drawn inside a measurement run is
 redrawn only by re-running the measurement, so relabelling one axis re-measured every
