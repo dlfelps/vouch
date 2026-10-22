@@ -40,8 +40,19 @@ class InitError(RuntimeError):
     pass
 
 
+GITATTRIBUTES = ["*/vouch-values.tex linguist-generated=true",
+                 "*/vouch-tables/*.tex linguist-generated=true"]
+
+
 def packaged_sty() -> str:
     return resources.files("vouch").joinpath("data", "vouch.sty").read_text(encoding="utf-8")
+
+
+def missing_attributes(root: Path) -> list[str]:
+    """vouch's lines that the project's .gitattributes lacks, which `vouch init` adds."""
+    attrs = root / ".gitattributes"
+    have = attrs.read_text(encoding="utf-8").splitlines() if attrs.exists() else []
+    return [w for w in GITATTRIBUTES if w not in have]
 
 
 def _has_documentclass(path: Path) -> bool:
@@ -72,10 +83,13 @@ def find_main(root: Path) -> Path:
     raise InitError(f"several papers found; choose one with --paper:\n  {listing}")
 
 
-def init(root: Path, paper: str | None = None) -> list[str]:
-    """Create vouch.toml, the store and vouch.sty. Returns human-readable notes."""
+def init(root: Path, paper: str | None = None) -> tuple[list[str], bool]:
+    """Create vouch.toml, the store and vouch.sty. Returns human-readable notes, and
+    whether this set the project up (wrote vouch.toml or a first vouch.sty) rather than
+    refreshed one: only a new project is shown its first steps."""
     root = root.resolve()
     notes: list[str] = []
+    created = False
     cfg_path = root / CONFIG_NAME
     if cfg_path.exists():
         cfg = Config.load(root)
@@ -93,6 +107,7 @@ def init(root: Path, paper: str | None = None) -> list[str]:
         cfg_path.write_text(TOML_TEMPLATE.format(main=rel), encoding="utf-8", newline="\n")
         notes.append(f"wrote {CONFIG_NAME} (paper: {rel})")
         main_paths = [main]
+        created = True
 
     ensure_store(root / ".vouch")
     sty = packaged_sty()
@@ -102,6 +117,7 @@ def init(root: Path, paper: str | None = None) -> list[str]:
         if not target.exists():
             target.write_text(sty, encoding="utf-8", newline="\n")
             notes.append(f"copied vouch.sty to {rel}")
+            created = True
         elif target.read_text(encoding="utf-8") != sty:
             target.write_text(sty, encoding="utf-8", newline="\n")
             notes.append(f"updated {rel} to this version of vouch")
@@ -111,14 +127,12 @@ def init(root: Path, paper: str | None = None) -> list[str]:
                          f"  \\usepackage{{vouch}}")
 
     attrs = root / ".gitattributes"
-    want = ["*/vouch-values.tex linguist-generated=true",
-            "*/vouch-tables/*.tex linguist-generated=true"]
-    have = attrs.read_text(encoding="utf-8").splitlines() if attrs.exists() else []
-    missing = [w for w in want if w not in have]
+    missing = missing_attributes(root)
     if missing:
+        have = attrs.read_text(encoding="utf-8").splitlines() if attrs.exists() else []
         with open(attrs, "a", encoding="utf-8", newline="\n") as fh:
             if have and have[-1].strip():
                 fh.write("\n")
             fh.write("# vouch: generated files\n" + "\n".join(missing) + "\n")
         notes.append("marked generated files in .gitattributes")
-    return notes
+    return notes, created

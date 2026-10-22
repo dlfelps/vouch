@@ -521,3 +521,28 @@ def test_an_outdated_vouch_sty_is_reported(example, capsys):
     capsys.readouterr()
     code, rep = check_json(example, capsys)
     assert not [i for i in rep["issues"] if i["check"] == "sty-outdated"]
+
+
+def test_the_sty_fix_says_what_init_touches(example, capsys):
+    # The fix said only "`vouch init` replaces it". In a repository whose rules forbid
+    # `vouch init --agents` and `vouch hook install`, an agent had to read init.py to learn
+    # that plain init keeps vouch.toml, installs nothing, and may add to .gitattributes.
+    built(example)
+    sty = example / "paper" / "vouch.sty"
+    sty.write_text("% an older vouch.sty\n", encoding="utf-8", newline="\n")
+    msg = lambda: [i for i in check_json(example, capsys)[1]["issues"]       # noqa: E731
+                   if i["check"] == "sty-outdated"][0]["message"]
+    m = msg()
+    assert "changes nothing else" in m and "vouch.toml" in m and "hook" in m
+    assert ".gitattributes" not in m                      # its lines are there already
+    attrs = example / ".gitattributes"
+    attrs.write_text("", encoding="utf-8")
+    assert "adds vouch's lines to .gitattributes" in msg()
+
+    toml = (example / "vouch.toml").read_bytes()
+    assert cli.main(["init", "--root", str(example)]) == 0
+    out = capsys.readouterr().out
+    assert (example / "vouch.toml").read_bytes() == toml
+    assert "updated paper/vouch.sty" in out and ".gitattributes" in out
+    assert "next:" not in out                  # the first steps of a new project, not this one
+    assert not (example / ".git" / "hooks" / "pre-commit").exists()

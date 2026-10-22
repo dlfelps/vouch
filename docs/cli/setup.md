@@ -22,11 +22,25 @@ $ vouch init
   copied vouch.sty to paper/vouch.sty
   add to the preamble of paper/main.tex:  \usepackage{vouch}
   marked generated files in .gitattributes
+next: record values in your experiments, cite them as \vouch{key}, run `vouch build`
 ```
 
 Writes `vouch.toml`, detects the main `.tex`, copies `vouch.sty`, adds
 `.gitignore` entries (`.vouch/cache/`), and prints the `\usepackage` line to
 add. See [Claude Code](../llm/claude-code.md) for what `--agents` installs.
+
+In a project that already has `vouch.toml`, `vouch init` is a refresh, and the
+fix `vouch check` gives for `sty-outdated` after an upgrade. It keeps
+`vouch.toml`, replaces an outdated `vouch.sty` beside each paper, adds vouch's
+`.gitattributes` lines if they are missing, and installs no hook or agent files
+unless `--hook` or `--agents` asks. It prints the next steps only for a new
+project.
+
+```console
+$ vouch init
+  vouch.toml exists; left unchanged
+  updated paper/vouch.sty to this version of vouch
+```
 
 ## `vouch build`
 

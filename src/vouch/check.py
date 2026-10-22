@@ -116,7 +116,10 @@ def collect(ctx: Context) -> list[Issue]:
     # The paper's copy of vouch.sty. `vouch init` copies it, and an upgraded vouch left the
     # copy behind with nothing said, so a paper could be built against macros the
     # installed version no longer writes or documents. Line endings don't count.
-    from .init import packaged_sty
+    # The fix says what `vouch init` touches: it said only "replaces it", and an agent in a
+    # repository that forbids `init --agents` and `hook install` had to read init.py to
+    # learn that plain init keeps vouch.toml, installs nothing, and may add to .gitattributes.
+    from .init import missing_attributes, packaged_sty
     current = packaged_sty().replace("\r\n", "\n")
     for pl in ctx.plans:
         sty = pl.main.parent / "vouch.sty"
@@ -126,10 +129,13 @@ def collect(ctx: Context) -> list[Issue]:
             continue                    # none beside the paper: TeX finds one elsewhere
         if copy != current:
             rel = cfg.rel(sty)
+            also = (", adds vouch's lines to .gitattributes, and"
+                    if missing_attributes(cfg.root) else " and")
             issues.append(Issue("sty-outdated", "warning",
                                 f"{rel} is not this version of vouch's vouch.sty; "
-                                f"`vouch init` replaces it", rel, fix="vouch init",
-                                fix_kind="command"))
+                                f"`vouch init` replaces it{also} changes nothing else "
+                                f"(it keeps vouch.toml, and installs no hook or agent files)",
+                                rel, fix="vouch init", fix_kind="command"))
 
     # runs
     cited = _cited(ctx)

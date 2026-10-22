@@ -177,7 +177,7 @@ def cmd_init(args) -> int:
     from .init import InitError, init
     root = Path(args.root).resolve() if args.root else Path.cwd().resolve()
     try:
-        notes = init(root, args.paper)
+        notes, created = init(root, args.paper)
     except (InitError, ConfigError) as exc:
         return _fatal("init", exc)
     for n in notes:
@@ -192,7 +192,11 @@ def cmd_init(args) -> int:
         rc = _init_agents(root, args)
         if rc != EXIT_OK:
             return rc
-    C.out("next: record values in your experiments, cite them as \\vouch{key}, run `vouch build`")
+    # A new project's first steps. `vouch init` is also the fix check gives for an
+    # outdated vouch.sty, and there the line read as if the project were starting over.
+    if created:
+        C.out("next: record values in your experiments, cite them as \\vouch{key}, "
+              "run `vouch build`")
     return EXIT_OK
 
 
