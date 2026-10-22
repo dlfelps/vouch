@@ -57,6 +57,19 @@ Ranking is BM25 over a document per key, stdlib-only, with a small built-in
 synonym list (acc/accuracy, lr/learning rate, std/deviation, n/seeds/samples,
 time/how long/took, …).
 
+A paper may call a thing by another name than its keys do: a stage renamed in
+the prose, say, with its keys kept because a rename would break their history.
+Map the paper's word to the keys' words in `vouch.toml`:
+
+```toml
+[search]
+synonyms = { anchor = ["hull"], label = "group", reality = ["parity", "phantom"] }
+```
+
+`vouch search anchor` then finds the `hull` keys, table columns included. A
+synonym counts as the word itself, and only one way: `vouch search hull` is
+unchanged.
+
 When a hit's producing function has a docstring, its first line is appended as
 a quick sanity check -- read fresh from the current source, not a description
 vouch generated.

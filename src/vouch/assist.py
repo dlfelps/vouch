@@ -118,6 +118,15 @@ def search(ctx, query: str, limit: int = 10) -> list[dict]:
             if t in group:
                 for s in group:
                     weights.setdefault(s, 0.5)
+    # The project's own words, `[search] synonyms`. A paper renamed its method's stages
+    # (hull became "anchor") and kept the keys, whose history a rename would break, and
+    # `vouch search anchor` found nothing. A declared synonym counts as the word itself,
+    # one way only: from the paper's word to the keys'.
+    for word, also in ctx.cfg.search_synonyms.items():
+        wt = tokens(word)
+        if wt and all(t in q for t in wt):
+            for t in (t for a in also for t in tokens(a)):
+                weights[t] = max(weights.get(t, 0), 1.0)
     want_sub = any(t in _SUB for t in q)
     want_time = any(t in _SYNONYMS[5] for t in q)
     docs: list[tuple[str, list[str], Entry | None]] = []

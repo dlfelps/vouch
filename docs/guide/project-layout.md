@@ -100,6 +100,9 @@ severity = { "figure-untracked" = "info" }
 
 [hook]
 strict         = false                     # pre-commit runs `vouch check` (errors block); true adds --strict
+
+[search]
+synonyms       = { anchor = ["hull"], label = "group" }   # the paper's word -> the words its keys use
 ```
 
 Every setting has a working default. `vouch init` writes only `[[paper]] main`

@@ -297,6 +297,9 @@ severity = { "figure-untracked" = "info" }
 
 [hook]
 strict         = false                     # pre-commit runs `vouch check` (errors block); true adds --strict
+
+[search]
+synonyms       = { anchor = ["hull"], label = "group" }   # the paper's word -> the words its keys use
 ```
 
 Every setting has a working default. `vouch init` writes only `[[paper]] main` plus commented-out examples.
@@ -1468,6 +1471,7 @@ Projects with more than 300 keys get an index in `CATALOG.md` (prefix, count, on
 ### 13.2 Lookup and insertion commands
 
 **`vouch search`** ranks keys with BM25 over a document per key: key segments (split on `.`, `_`, `-` and camelCase), description, run id, unit, a tracked call's function and arguments, and table columns. A small built-in synonym list (acc/accuracy, lr/learning rate, std/deviation, n/seeds/samples, time/how long/took, …) helps. It is stdlib-only, with no embeddings.
+- A project adds its own words in `[search] synonyms` (§3.3): a word the paper uses, mapped to the word or words its keys use instead. This is for a paper that names a thing otherwise than its keys do, as when a method's stages were renamed in the prose and the keys kept, since renaming them would break their history. A synonym counts as the word itself, and only one way: `anchor = ["hull"]` makes `vouch search anchor` find the `hull` keys, and `vouch search hull` is unchanged. An alias (§5.7) gives one key a second name; a synonym reaches every key that uses the word, a table's columns included. A malformed table is an error of `vouch search`, and of nothing else.
 - Stat subfields (`.mean`, `.std`, …) are searched only when the query names one ("standard deviation").
 - Timing values rank lower unless the query is about time.
 - Pending (`vouch.expect`) keys are found too.

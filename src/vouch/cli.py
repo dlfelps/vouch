@@ -895,7 +895,10 @@ def cmd_search(args) -> int:
         cfg, ctx = _ctx(args, "search")
     except _Fatal as f:
         return _fatal(f.cmd, f.exc)
-    hits = search(ctx, " ".join(args.words), limit=args.limit)
+    try:
+        hits = search(ctx, " ".join(args.words), limit=args.limit)
+    except ConfigError as exc:                       # [search] synonyms, read only here
+        return _fatal("search", exc)
     if args.json:
         print(_envelope("search", True, query=" ".join(args.words), results=hits))
         return EXIT_OK

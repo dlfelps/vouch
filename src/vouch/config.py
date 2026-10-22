@@ -40,6 +40,7 @@ DEFAULTS: dict[str, Any] = {
              "skip_envs": ["verbatim", "lstlisting", "minted", "comment"], "allow": []},
     "check": {"severity": {}},
     "hook": {"strict": False},
+    "search": {"synonyms": {}},
 }
 
 
@@ -136,6 +137,23 @@ class Config:
     @property
     def named_formats(self) -> dict[str, str]:
         return dict(self.get("format", "named", {}) or {})
+
+    @property
+    def search_synonyms(self) -> dict[str, list[str]]:
+        """``[search] synonyms``: a word the paper uses -> the words its keys use instead,
+        e.g. ``anchor = ["hull"]``. Read only by search, so a slip in it stops no run."""
+        raw = self.get("search", "synonyms", {}) or {}
+        if not isinstance(raw, Mapping):
+            raise ConfigError('[search] synonyms must be a table like { anchor = ["hull"] }')
+        out: dict[str, list[str]] = {}
+        for word, also in raw.items():
+            if isinstance(also, str):
+                also = [also]
+            if not isinstance(also, list) or not all(isinstance(a, str) for a in also):
+                raise ConfigError(f"[search] synonyms: {word!r} must name a word or a list of "
+                                  f'words, like {word} = ["hull"]')
+            out[str(word)] = list(also)
+        return out
 
     # -- [metrics] ---------------------------------------------------------
 

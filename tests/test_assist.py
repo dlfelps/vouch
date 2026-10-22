@@ -182,6 +182,26 @@ def test_search_ranks_the_intended_key_first(proj, query, expected):
     assert hits and hits[0]["key"] == expected, [h["key"] for h in hits[:3]]
 
 
+def test_search_finds_keys_by_the_papers_names_for_them(proj, capsys):
+    # A paper renamed its method's stages (hull became "anchor") and kept the keys, whose
+    # history a rename would break. `vouch search anchor` found nothing: neither key nor
+    # description says it, and an alias can't rename a column across a table's rows.
+    from vouch.assist import search
+    paper(proj, "x")
+    ctx = lambda: plan(Config.load(proj.root), check_env=False)        # noqa: E731
+    assert search(ctx(), "transformer accuracy")[0]["key"] != "evaluate.cifar.vit.acc"
+    toml = (proj.root / "vouch.toml").read_text(encoding="utf-8")
+    proj.write("vouch.toml", toml + '[search]\nsynonyms = { Transformers = ["vit"], '
+                                    'baseline = "mlp" }\n')
+    assert search(ctx(), "transformer accuracy")[0]["key"] == "evaluate.cifar.vit.acc"
+    assert search(ctx(), "baselines test loss")[0]["key"] == "evaluate.cifar.mlp.loss"
+    assert not search(ctx(), "vit")[0]["key"].startswith("evaluate.cifar.mlp")  # one way only
+    proj.write("vouch.toml", toml + '[search]\nsynonyms = { anchor = 3 }\n')
+    capsys.readouterr()
+    assert cli.main(["search", "anchor"]) == 2
+    assert "[search] synonyms" in capsys.readouterr().err
+
+
 def test_cite_gives_the_exact_snippet(proj, capsys):
     paper(proj, "x")
     build(Config.load(proj.root))
