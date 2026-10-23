@@ -648,3 +648,30 @@ def test_json_output_follows_the_schema(proj, capsys):
     out = json.loads(capsys.readouterr().out)
     checks = [i["check"] for i in out["issues"]]
     assert checks.index("unknown-key") < checks.index("pending") < checks.index("no-source")
+
+
+def test_trace_of_a_table_shows_its_shape_and_rows(proj, capsys):
+    # `vouch trace` on a table key printed "ablation = None   → -": a table has no single
+    # value, and nothing in the trace showed a row of it, so reading one column of a
+    # 16-row table meant citing its cells one at a time.
+    proj.write("tab.py", '''
+        import vouch
+        vouch.table("ablation", [["a", 0.5, 3], ["b", 0.25, 40]], columns=["id", "drop", "n"],
+                    row_key="id", fmt={"drop": ".0pct"}, desc="the drop of each arm")
+    ''')
+    proj.run("tab.py", check=True)
+    paper(proj, "x")
+    build(Config.load(proj.root))
+    assert cli.main(["trace", "--root", str(proj.root), "ablation"]) == 0
+    out = capsys.readouterr().out
+    lines = out.splitlines()
+    assert lines[0] == "ablation   table · 2 rows × 3 columns"
+    assert "None" not in out
+    assert "  cells     ablation.<id>.<column>" in lines
+    assert "  columns   id  drop  n" in lines
+    assert "  row       a   50%   3" in lines              # each cell as the paper prints it
+    assert "  row       b   25%   40" in lines
+    assert any(line.startswith("  recorded  ") and "in run tab" in line for line in lines)
+    assert cli.main(["trace", "--root", str(proj.root), "ablation", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["table"]["body"] == [["a", "50%", "3"], ["b", "25%", "40"]]

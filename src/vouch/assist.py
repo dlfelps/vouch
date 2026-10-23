@@ -37,6 +37,21 @@ def shown(e: Entry, opts: Options, fmt: str | None = None) -> str:
     return readable(r.plain).replace("+/-", "±")
 
 
+def table_body(ctx, key: str) -> list[list[str]]:
+    """A table's rows as a person reads them: each cell as the paper prints it."""
+    idx = ctx.idx
+    t = idx.tables[key]
+    opts = Options.from_config(ctx.cfg)
+    body = []
+    for i, row in enumerate(t.rows):
+        cells = []
+        for col, raw in zip(t.columns, row):
+            ce = idx.get(t.cell_key(i, col))
+            cells.append(shown(ce, opts) if ce is not None else str(raw))
+        body.append(cells)
+    return body
+
+
 def state_of(ctx, e: Entry) -> str:
     found = [ctx.states[r].state for r in source_runs(e) if r in ctx.states]
     if not found:
@@ -496,7 +511,8 @@ def describe(ctx, key: str) -> dict:
     if e.kind == "table" and key in idx.tables:
         t = idx.tables[key]
         out["table"] = {"columns": t.columns, "rows": len(t.rows),
-                        "cells": f"{key}.<{t.row_key or 'row'}>.<column>"}
+                        "cells": f"{key}.<{t.row_key or 'row'}>.<column>",
+                        "body": table_body(ctx, key)}
     call = e.extra.get("call")
     if call:
         out["call"] = {**call, "text": call_text(call)}

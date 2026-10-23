@@ -124,6 +124,22 @@ $ vouch trace TARGET [--code] [--json] [--root DIR]
 `TARGET` is a key, a figure path, a script path, a data path, or `file:line` in a
 paper's `.tex`. `--code` lists every code unit the target depends on.
 
+A table key has no single value: its trace gives the table's shape, the pattern of its
+cell keys, and its rows with each cell as the paper prints it, up to 40 rows. `--json`
+has every row, as `table.body`.
+
+```console
+$ vouch trace ablation
+ablation   table · 2 rows × 3 columns
+  desc      the drop of each arm
+  cells     ablation.<id>.<column>
+  columns   id  drop  n
+  row       a   50%   3
+  row       b   25%   40
+  recorded  experiments/ablation.py:12   in run ablation
+  ...
+```
+
 A data path is any file a run wrote (`vouch.artifact`, `vouch run --out`), registered
 (`vouch import`) or read (`vouch.input`, `--input`): a results table, a model, a built
 package. The trace names the run that wrote it, whether the file on disk is still what

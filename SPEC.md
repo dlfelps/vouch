@@ -1316,7 +1316,7 @@ Every command accepts `--root DIR`. These commands also accept `--json`, which e
 | `vouch lint [FILE]…` | The edit hook's check (§13.5): unknown keys, malformed macros and typed numbers, on the files named, or every file of every paper. For edits that never reach the hook, such as a script's. Reads the index `build` writes; exit 1 if any file has a problem. |
 | `vouch status [--no-env]` | Freshness per run, git-status style, with the exact re-run command and the units that changed, and the runs in progress or interrupted (§4.2); `--json` lists those under `running`. Its last line says when the edit hook last checked a paper file, and what it found (`edit_hook` in `--json`): the hook is silent when all is well, so this tells "it ran and found nothing" from "it never ran". `--no-env` skips the package-version drift check. |
 | `vouch ls [PATTERN] [--cited\|--uncited] [--all] [--json]` | Keys with rendered value, description, run, freshness and citation count, numbers inside keys in numeric order. A mean ± std's subfields (`.mean`, `.std`, …) are listed only when cited or with `--all`; `--json` always has every key. |
-| `vouch trace KEY \| FIGURE \| SCRIPT \| FILE \| FILE:LINE` | The full chain for a key; for a figure, the run and `savefig` line that produced it, whether the file is still what that run saved, and where the paper includes it; the values a script produces and where they're cited; for any other file a run wrote, imported or read (a results table, a model, a wheel), the run that wrote it, whether it is still what that run wrote, and the runs and derived values that read it; or the values cited on a line of tex. |
+| `vouch trace KEY \| FIGURE \| SCRIPT \| FILE \| FILE:LINE` | The full chain for a key (for a table, its shape and rows); for a figure, the run and `savefig` line that produced it, whether the file is still what that run saved, and where the paper includes it; the values a script produces and where they're cited; for any other file a run wrote, imported or read (a results table, a model, a wheel), the run that wrote it, whether it is still what that run wrote, and the runs and derived values that read it; or the values cited on a line of tex. |
 | `vouch explore [--port N] [--open] [--html FILE] [--json]` | Browse every recorded value in a local web page, grouped by script and function, and copy the LaTeX that cites it (§12.2). |
 | `vouch search "WORDS" [--limit N]` | Ranked lookup (§13.2). |
 | `vouch cite KEY [--fmt F]` | The snippet to paste, plus its rendering (§13.2). |
@@ -1358,6 +1358,20 @@ cifar.resnet.acc = Stat(mean=0.93214, std=0.0041, n=5)   → "93.2 ± 0.4\%"   (
   inputs    data/cifar10.npz · fresh
   feeds     cifar.resnet_vs_vit.pts (derived) · claim cifar.resnet_beats_vit · table main[resnet, CIFAR-10]
   cited     paper/main.tex:41, paper/main.tex:118, paper/sections/results.tex:22
+```
+
+A table has no single value. Its trace gives its shape, its cell keys and its rows, each cell as the paper prints it, up to 40 rows (`--json` has every row, as `table.body`):
+
+```console
+$ vouch trace ablation
+ablation   table · 2 rows × 3 columns
+  desc      the drop of each arm
+  cells     ablation.<id>.<column>
+  columns   id  drop  n
+  row       a   50%   3
+  row       b   25%   40
+  recorded  experiments/ablation.py:12   in run ablation
+  ...
 ```
 
 ### 12.2 Exploring the registry: `vouch explore`

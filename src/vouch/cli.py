@@ -738,6 +738,9 @@ def cmd_trace(args) -> int:
     return EXIT_FAIL
 
 
+TRACE_TABLE_ROWS = 40      # rows of a table that `vouch trace` prints; --json has them all
+
+
 def _trace_key(ctx, key: str, args, indent: str = "") -> int:
     from .build import _num
     idx = ctx.idx
@@ -745,9 +748,30 @@ def _trace_key(ctx, key: str, args, indent: str = "") -> int:
     rendered = [(f, r) for pl in ctx.plans for (k, f), r in pl.rendered.items() if k == key]
     shown = ", ".join(f"\"{ch.readable(r.plain)}\"" + (f" [{f}]" if f else "") for f, r in
                       dict(rendered).items()) or "-"
-    out = [f"{key} = {_num(e.raw)}   → {shown}" + (f"   (fmt {e.fmt})" if e.fmt else "")]
+    t = idx.tables.get(key) if e.kind == "table" else None
+    if t is not None:
+        # A table has no single value. This line read "KEY = None   → -", and nothing below
+        # showed a row of the table, so reading one column meant citing its cells one by
+        # one. The trace now gives the table's shape, its cell keys and its rows.
+        out = [f"{key}   table · {len(t.rows)} rows × {len(t.columns)} columns"]
+    else:
+        out = [f"{key} = {_num(e.raw)}   → {shown}" + (f"   (fmt {e.fmt})" if e.fmt else "")]
     if e.desc:
         out.append(f"  desc      {e.desc}" + (f"   · better: {e.better}" if e.better else ""))
+    if t is not None:
+        from .assist import table_body
+        body = table_body(ctx, key)
+        widths = [max(len(str(c)) for c in [col, *(r[j] for r in body)])
+                  for j, col in enumerate(t.columns)]
+
+        def _row(cells):
+            return "  ".join(str(c).ljust(w) for c, w in zip(cells, widths)).rstrip()
+        out.append(f"  cells     {key}.<{t.row_key or 'row'}>.<column>")
+        out.append(f"  columns   {_row(t.columns)}")
+        out += [f"  row       {_row(r)}" for r in body[:TRACE_TABLE_ROWS]]
+        if len(body) > TRACE_TABLE_ROWS:
+            out.append(f"            (+{len(body) - TRACE_TABLE_ROWS} more rows; "
+                       f"--json lists them all)")
     if e.kind == "table-cell":
         out.append(f"  table     {e.parent}")
     if e.extra.get("alias_of"):
